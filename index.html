@@ -3,43 +3,42 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Mehmet Rusen Ayvaz — Interactive AI &amp; Tech Lab</title>
+  <title>Mehmet Rusen Ayvaz — Interactive AI &amp; Systems Lab</title>
   <style>
     :root {
-      --bg: #0b0f19;
-      --surface: #131a2a;
-      --border: #1f2a44;
-      --text: #e2e8f0;
-      --muted: #94a3b8;
+      --bg: #070b14;
+      --surface: #111829;
+      --surface-2: #172036;
+      --border: #22304f;
+      --text: #e6edf7;
+      --muted: #8b9cb8;
       --accent: #38bdf8;
-      --accent-soft: rgba(56, 189, 248, 0.12);
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --green: #34d399;
+      --green-soft: rgba(52, 211, 153, 0.14);
+      --purple: #a78bfa;
     }
 
-    * {
-      box-sizing: border-box;
-      margin: 0;
-      padding: 0;
-    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
-      background-color: var(--bg);
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+      background:
+        radial-gradient(circle at 15% 0%, rgba(56, 189, 248, 0.08), transparent 38%),
+        radial-gradient(circle at 85% 10%, rgba(167, 139, 250, 0.07), transparent 34%),
+        var(--bg);
       color: var(--text);
       line-height: 1.65;
       padding: 0 1.5rem;
     }
 
-    .container {
-      max-width: 960px;
-      margin: 0 auto;
-    }
+    .container { max-width: 1020px; margin: 0 auto; }
 
-    /* Navigation */
     nav {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1.75rem 0;
+      padding: 1.6rem 0;
       border-bottom: 1px solid var(--border);
     }
 
@@ -51,178 +50,188 @@
       text-decoration: none;
     }
 
-    .logo span {
-      color: var(--accent);
-    }
+    .logo span { color: var(--accent); }
 
-    .nav-links {
-      display: flex;
-      gap: 1.5rem;
-    }
-
+    .nav-links { display: flex; gap: 1.5rem; }
     .nav-links a {
       color: var(--muted);
       text-decoration: none;
-      font-size: 0.95rem;
-      transition: color 0.2s;
+      font-size: 0.92rem;
+      transition: color 0.18s;
     }
+    .nav-links a:hover { color: var(--text); }
 
-    .nav-links a:hover {
-      color: var(--text);
-    }
-
-    /* Hero */
-    header {
-      padding: 5rem 0 4rem;
-    }
+    header { padding: 4.5rem 0 3.75rem; }
 
     .badge {
       display: inline-block;
       background: var(--accent-soft);
       color: var(--accent);
-      font-size: 0.8rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
       font-weight: 600;
-      padding: 0.35rem 0.75rem;
+      padding: 0.32rem 0.8rem;
       border-radius: 999px;
+      border: 1px solid rgba(56, 189, 248, 0.28);
       margin-bottom: 1.25rem;
-      letter-spacing: 0.03em;
     }
 
     h1 {
-      font-size: clamp(2rem, 5vw, 3.25rem);
-      line-height: 1.15;
-      letter-spacing: -0.03em;
-      margin-bottom: 1.25rem;
+      font-size: clamp(2rem, 4.8vw, 3.25rem);
+      line-height: 1.12;
+      letter-spacing: -0.035em;
+      margin-bottom: 1.15rem;
+      max-width: 780px;
     }
 
     .subtitle {
-      font-size: 1.15rem;
+      font-size: 1.1rem;
       color: var(--muted);
-      max-width: 650px;
+      max-width: 660px;
       margin-bottom: 2rem;
     }
 
-    .cta-group {
-      display: flex;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
+    .cta-group { display: flex; gap: 0.9rem; flex-wrap: wrap; }
 
     .btn {
-      display: inline-block;
-      padding: 0.75rem 1.4rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      padding: 0.78rem 1.4rem;
       border-radius: 8px;
-      font-weight: 600;
-      font-size: 0.95rem;
+      font-weight: 700;
+      font-size: 0.94rem;
       text-decoration: none;
-      transition: transform 0.15s, background 0.2s;
+      transition: transform 0.15s, background 0.18s, border-color 0.18s;
     }
 
-    .btn-primary {
-      background: var(--accent);
-      color: #082f49;
-    }
-
-    .btn-primary:hover {
-      transform: translateY(-1px);
-      background: #7dd3fc;
-    }
+    .btn-primary { background: var(--accent); color: #051c2c; }
+    .btn-primary:hover { transform: translateY(-1px); background: #7dd3fc; }
 
     .btn-secondary {
       background: var(--surface);
       color: var(--text);
       border: 1px solid var(--border);
     }
+    .btn-secondary:hover { border-color: var(--accent); }
 
-    .btn-secondary:hover {
-      border-color: var(--accent);
-    }
-
-    /* Sections */
     section {
-      padding: 3.5rem 0;
+      padding: 3.25rem 0;
       border-top: 1px solid var(--border);
     }
 
     h2 {
-      font-size: 1.5rem;
+      font-size: 1.45rem;
       letter-spacing: -0.02em;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.45rem;
     }
 
-    .section-desc {
-      color: var(--muted);
-      margin-bottom: 2rem;
+    .section-desc { color: var(--muted); margin-bottom: 1.85rem; }
+
+    /* Featured Flagship Card */
+    .flagship {
+      background: linear-gradient(135deg, rgba(56, 189, 248, 0.08), rgba(167, 139, 250, 0.06)), var(--surface);
+      border: 1px solid rgba(56, 189, 248, 0.42);
+      border-radius: 14px;
+      padding: 1.85rem;
+      margin-bottom: 1.5rem;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 1.5rem;
+      align-items: center;
     }
 
-    /* Project Cards */
+    @media (max-width: 720px) {
+      .flagship { grid-template-columns: 1fr; }
+    }
+
+    .pill-row {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+    }
+
+    .pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 0.22rem 0.55rem;
+      border-radius: 6px;
+    }
+
+    .pill-live {
+      background: var(--green-soft);
+      color: var(--green);
+      border: 1px solid rgba(52, 211, 153, 0.35);
+    }
+
+    .pill-cat {
+      background: var(--accent-soft);
+      color: var(--accent);
+    }
+
+    .flagship h3 { font-size: 1.4rem; margin-bottom: 0.55rem; letter-spacing: -0.02em; }
+    .flagship p { color: var(--muted); max-width: 640px; font-size: 0.96rem; margin-bottom: 1rem; }
+
+    .feature-chips { display: flex; flex-wrap: wrap; gap: 0.45rem; }
+    .feature-chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.75rem;
+      background: rgba(7, 11, 20, 0.65);
+      border: 1px solid var(--border);
+      padding: 0.22rem 0.55rem;
+      border-radius: 6px;
+      color: var(--text);
+    }
+
+    /* Roadmap Cards */
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 1.5rem;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 1.25rem;
     }
 
     .card {
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 12px;
-      padding: 1.5rem;
+      padding: 1.4rem;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      transition: border-color 0.2s, transform 0.2s;
+      transition: border-color 0.18s, transform 0.18s;
     }
 
-    .card:hover {
-      border-color: var(--accent);
-      transform: translateY(-2px);
-    }
+    .card:hover { border-color: var(--accent); transform: translateY(-2px); }
 
     .card-tag {
-      font-size: 0.75rem;
-      font-weight: 600;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.72rem;
+      font-weight: 700;
       text-transform: uppercase;
       letter-spacing: 0.05em;
-      color: var(--accent);
-      margin-bottom: 0.6rem;
+      color: var(--purple);
+      margin-bottom: 0.55rem;
     }
 
-    .card h3 {
-      font-size: 1.15rem;
-      margin-bottom: 0.6rem;
-    }
+    .card h3 { font-size: 1.08rem; margin-bottom: 0.5rem; }
+    .card p { font-size: 0.9rem; color: var(--muted); margin-bottom: 1.1rem; }
+    .status { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.8rem; color: var(--muted); }
 
-    .card p {
-      font-size: 0.95rem;
-      color: var(--muted);
-      margin-bottom: 1.25rem;
-    }
-
-    .status {
-      font-size: 0.85rem;
-      color: var(--text);
-      font-weight: 500;
-    }
-
-    /* Skills */
-    .tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.65rem;
-    }
-
+    .tags { display: flex; flex-wrap: wrap; gap: 0.6rem; }
     .tag {
       background: var(--surface);
       border: 1px solid var(--border);
-      padding: 0.45rem 0.9rem;
+      padding: 0.42rem 0.88rem;
       border-radius: 8px;
-      font-size: 0.9rem;
-      color: var(--text);
+      font-size: 0.88rem;
     }
 
-    /* Footer */
     footer {
-      padding: 2.5rem 0;
+      padding: 2.25rem 0;
       border-top: 1px solid var(--border);
       display: flex;
       justify-content: space-between;
@@ -230,13 +239,10 @@
       flex-wrap: wrap;
       gap: 1rem;
       color: var(--muted);
-      font-size: 0.9rem;
+      font-size: 0.88rem;
     }
 
-    footer a {
-      color: var(--accent);
-      text-decoration: none;
-    }
+    footer a { color: var(--accent); text-decoration: none; }
   </style>
 </head>
 <body>
@@ -245,64 +251,101 @@
       <a href="#" class="logo">Mehmet Rusen Ayvaz<span>.lab</span></a>
       <div class="nav-links">
         <a href="#labs">Interactive Labs</a>
-        <a href="#skills">Background</a>
+        <a href="#skills">Focus</a>
         <a href="https://github.com/thinkmodule" target="_blank" rel="noopener">GitHub</a>
       </div>
     </nav>
 
     <header>
-      <div class="badge">AI Evaluation &bull; Python &bull; Interactive Explainers</div>
-      <h1>Making complex AI &amp; CS concepts visual and intuitive.</h1>
+      <div class="badge">AI Evaluation &bull; Python &bull; Mechanistic Visualizers</div>
+      <h1>Making complex AI &amp; CS internals visual and testable.</h1>
       <p class="subtitle">
-        I'm [Mehmet Rusen Ayvaz]. I build interactive tools and clear technical breakdowns exploring how large language models, algorithms, and software systems actually work under the hood.
+        I'm Mehmet Rusen Ayvaz. I build zero-dependency, browser-native interactive labs to dissect how large language
+        models, attention mechanisms, and algorithms behave under the hood.
       </p>
       <div class="cta-group">
-        <a href="#labs" class="btn btn-primary">Explore Interactive Labs</a>
+        <a href="labs/transformer-workbench/" class="btn btn-primary">Launch Transformer Workbench &rarr;</a>
         <a href="https://github.com/thinkmodule" target="_blank" rel="noopener" class="btn btn-secondary">View GitHub Profile</a>
       </div>
     </header>
 
     <section id="labs">
-      <h2>Interactive Labs &amp; Explainers</h2>
-      <p class="section-desc">Hands-on browser simulations built from scratch to explain technical concepts without black boxes.</p>
+      <h2>Interactive Research Labs</h2>
+      <p class="section-desc">Real mathematical implementations running client-side at 60 FPS — zero black boxes.</p>
 
+      <!-- Module 01: Flagship -->
+      <article class="flagship">
+        <div>
+          <div class="pill-row">
+            <span class="pill pill-live">&#9679; Live Now</span>
+            <span class="pill pill-cat">Module 01 &bull; LLM Internals</span>
+          </div>
+          <h3>Transformer Internals &amp; Decoding Workbench</h3>
+          <p>
+            Full multi-stage LLM inference visualizer: interactive Byte-Pair Encoding with merge trace, live
+            Multi-Head Self-Attention (QK&top;/&radic;d<sub>k</sub>) with causal masking, autoregressive decoding across
+            multi-branch technical trajectories, counterfactual token forking, and live Shannon entropy telemetry.
+          </p>
+          <div class="feature-chips">
+            <span class="feature-chip">BPE Merge Trace</span>
+            <span class="feature-chip">4 Attention Heads</span>
+            <span class="feature-chip">Counterfactual Branching</span>
+            <span class="feature-chip">Min-P &amp; Rep-Penalty</span>
+            <span class="feature-chip">Canvas Telemetry</span>
+          </div>
+        </div>
+        <div>
+          <a href="labs/transformer-workbench/" class="btn btn-primary">Open Workbench &rarr;</a>
+        </div>
+      </article>
+
+      <!-- Upcoming Modules -->
       <div class="grid">
         <article class="card">
           <div>
-            <div class="card-tag">LLM Mechanics</div>
-            <h3>Token Prediction, Temperature &amp; Top-P Simulator</h3>
-            <p>Adjust sampling parameters in real time to see how softmax probabilities shift and why LLMs become deterministic or creative.</p>
+            <div class="card-tag">Module 02 &bull; Deep Learning</div>
+            <h3>Neural Network &amp; Backprop Studio</h3>
+            <p>Train a real multi-layer perceptron live in the browser and watch gradients, loss surfaces, and decision boundaries evolve in real time.</p>
           </div>
-          <a href="llm-simulator.html" class="status" style="color: var(--accent); text-decoration: none;">Launch Simulator &rarr;</a>
+          <div class="status">Up next &rarr;</div>
         </article>
 
         <article class="card">
           <div>
-            <div class="card-tag">Algorithms &bull; CS50</div>
-            <h3>Pathfinding Visualizer (A* vs. Dijkstra)</h3>
-            <p>Draw walls on a live grid and compare how heuristic search outperforms blind exploration step by step.</p>
+            <div class="card-tag">Module 03 &bull; Algorithms &amp; CS50</div>
+            <h3>Pathfinding Arena (A* vs. Dijkstra)</h3>
+            <p>Draw weighted terrain and mazes to race heuristic and blind graph-search algorithms side-by-side with step metrics.</p>
           </div>
-          <div class="status">Planned &rarr;</div>
+          <div class="status">In roadmap &rarr;</div>
+        </article>
+
+        <article class="card">
+          <div>
+            <div class="card-tag">Module 04 &bull; AI Evaluation</div>
+            <h3>LLM Pairwise Elo &amp; Rubric Engine</h3>
+            <p>Interactive Bradley-Terry / Elo rating simulator showing how human preference battles rank frontier models with confidence intervals.</p>
+          </div>
+          <div class="status">In roadmap &rarr;</div>
         </article>
       </div>
     </section>
 
     <section id="skills">
       <h2>Core Focus &amp; Credentials</h2>
-      <p class="section-desc">Bridging technical implementation, model evaluation, and clear communication.</p>
+      <p class="section-desc">Bridging technical implementation, model evaluation, and clear engineering communication.</p>
       <div class="tags">
         <span class="tag">Python</span>
         <span class="tag">Harvard CS50</span>
         <span class="tag">AI Model Evaluation</span>
-        <span class="tag">Prompt &amp; Context Engineering</span>
-        <span class="tag">HTML / CSS / JavaScript</span>
+        <span class="tag">LLM Decoding &amp; Interpretability</span>
+        <span class="tag">Vanilla ES6 &amp; HTML5 Canvas</span>
         <span class="tag">Git &amp; GitHub</span>
       </div>
     </section>
 
     <footer>
       <span>&copy; 2026 Mehmet Rusen Ayvaz</span>
-      <span>Hosted for free on GitHub Pages &bull; <a href="https://github.com/thinkmodule" target="_blank" rel="noopener">GitHub</a></span>
+      <span>thinkmodule.github.io &bull; <a href="https://github.com/thinkmodule/thinkmodule.github.io" target="_blank" rel="noopener">Repository</a></span>
     </footer>
   </div>
 </body>
