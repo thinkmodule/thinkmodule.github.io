@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LLM Sampling Simulator — Mehmet Rusen Ayvaz</title>
+  <style>
+    :root {
+      --bg: #0b0f19;
+      --surface: #131a2a;
+      --surface-2: #1a2338;
+      --border: #1f2a44;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #38bdf8;
+      --accent-soft: rgba(56, 189, 248, 0.14);
+      --green: #34d399;
+      --amber: #fbbf24;
+      --red: #f87171;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Inter, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 0 1.5rem 4rem;
+    }
+
+    .container { max-width: 1000px; margin: 0 auto; }
+
+    /* Nav */
+    nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.5rem 0;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 2.5rem;
+    }
+
+    .logo {
+      font-weight: 700;
+      font-size: 1.05rem;
+      color: var(--text);
+      text-decoration: none;
+    }
+
+    .logo span { color: var(--accent); }
+
+    .back-link {
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+
+    .back-link:hover { color: var(--accent); }
+
+    /* Header */
+    .badge {
+      display: inline-block;
+      background: var(--accent-soft);
+      color: var(--accent);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.3rem 0.75rem;
+      border-radius: 999px;
+      margin-bottom: 0.9rem;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      font-size: clamp(1.75rem, 4vw, 2.5rem);
+      letter-spacing: -0.03em;
+      line-height: 1.15;
+      margin-bottom: 0.75rem;
+    }
+
+    .lead {
+      color: var(--muted);
+      max-width: 720px;
+      margin-bottom: 2rem;
+    }
+
+    /* Layout Grid */
+    .sim-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 1.5rem;
+      align-items: start;
+    }
+
+    @media (max-width: 820px) {
+      .sim-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+
+    .panel-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin-bottom: 1.1rem;
+    }
+
+    /* Controls */
+    .control-group { margin-bottom: 1.4rem; }
+
+    .control-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 0.4rem;
+    }
+
+    label {
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+
+    .val-pill {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.85rem;
+      color: var(--accent);
+      background: var(--accent-soft);
+      padding: 0.15rem 0.5rem;
+      border-radius: 6px;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+      margin-top: 0.25rem;
+    }
+
+    select {
+      width: 100%;
+      background: var(--surface-2);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 0.75rem;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    select:focus { border-color: var(--accent); }
+
+    /* Presets */
+    .presets {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.5rem;
+      margin-top: 0.5rem;
+      margin-bottom: 1.4rem;
+    }
+
+    .preset-btn {
+      background: var(--surface-2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 7px;
+      padding: 0.45rem 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .preset-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    /* Action Button */
+    .sample-btn {
+      width: 100%;
+      background: var(--accent);
+      color: #082f49;
+      border: none;
+      border-radius: 8px;
+      padding: 0.8rem 1rem;
+      font-weight: 700;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: transform 0.1s, background 0.2s;
+    }
+
+    .sample-btn:hover { background: #7dd3fc; }
+    .sample-btn:active { transform: scale(0.98); }
+
+    /* Prompt Box */
+    .prompt-display {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.2rem;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .sampled-token {
+      display: inline-block;
+      background: rgba(52, 211, 153, 0.18);
+      color: var(--green);
+      border: 1px solid rgba(52, 211, 153, 0.45);
+      padding: 0.05rem 0.45rem;
+      border-radius: 5px;
+      margin-left: 0.25rem;
+      font-weight: 700;
+    }
+
+    /* Metrics Row */
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .metric-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.75rem 0.9rem;
+    }
+
+    .metric-label {
+      font-size: 0.74rem;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .metric-val {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 1.15rem;
+      font-weight: 700;
+      margin-top: 0.15rem;
+    }
+
+    /* Token Bars */
+    .token-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .token-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 78px;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 0.45rem 0.6rem;
+      border-radius: 8px;
+      transition: opacity 0.2s, background 0.2s;
+    }
+
+    .token-row.active-sample {
+      background: rgba(52, 211, 153, 0.12);
+      outline: 1px solid rgba(52, 211, 153, 0.4);
+    }
+
+    .token-row.excluded {
+      opacity: 0.35;
+    }
+
+    .token-name {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .token-logit {
+      font-size: 0.72rem;
+      color: var(--muted);
+      font-weight: 400;
+    }
+
+    .bar-track {
+      height: 22px;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #0284c7, #38bdf8);
+      border-radius: 5px;
+      transition: width 0.22s ease;
+    }
+
+    .token-row.excluded .bar-fill {
+      background: #475569;
+    }
+
+    .token-prob {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.85rem;
+      text-align: right;
+      font-weight: 600;
+    }
+
+    .excluded-tag {
+      font-size: 0.7rem;
+      color: var(--red);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    /* History */
+    .history-box {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border);
+      font-size: 0.85rem;
+      color: var(--muted);
+    }
+
+    .history-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.5rem;
+    }
+
+    .chip {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      padding: 0.15rem 0.5rem;
+      border-radius: 5px;
+      color: var(--text);
+    }
+
+    /* Explainer Section */
+    .explainer {
+      margin-top: 2.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 2rem;
+    }
+
+    .explainer h2 {
+      font-size: 1.35rem;
+      margin-bottom: 1rem;
+    }
+
+    .steps-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 1.25rem;
+      margin-top: 1.25rem;
+    }
+
+    .step-box {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.15rem;
+    }
+
+    .step-box h3 {
+      font-size: 0.98rem;
+      color: var(--accent);
+      margin-bottom: 0.45rem;
+    }
+
+    .step-box p {
+      font-size: 0.88rem;
+      color: var(--muted);
+    }
+
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      background: var(--surface-2);
+      padding: 0.1rem 0.35rem;
+      border-radius: 4px;
+      font-size: 0.84rem;
+      color: var(--text);
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a href="index.html" class="logo">Mehmet Rusen Ayvaz<span>.lab</span></a>
+      <a href="index.html" class="back-link">&larr; Back to Portfolio</a>
+    </nav>
+
+    <div class="badge">Interactive Lab &bull; LLM Mechanics</div>
+    <h1>Token Prediction, Temperature &amp; Top-P Simulator</h1>
+    <p class="lead">
+      Large Language Models don't pick a single answer — they output raw scores (logits) for every possible next token. Adjust the decoding parameters below to see how softmax probabilities shift, how nucleus filtering cuts off the tail, and how entropy changes in real time.
+    </p>
+
+    <div class="sim-grid">
+      <!-- Left Panel: Controls -->
+      <div class="panel">
+        <div class="panel-title">Decoding Controls</div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="promptSelect">Context Prompt</label>
+          </div>
+          <select id="promptSelect">
+            <option value="creative">Creative: "In 2040, humanity discovered..."</option>
+            <option value="factual">Factual: "The capital of France is..."</option>
+            <option value="code">Python: "def is_even(n): return n..."</option>
+          </select>
+        </div>
+
+        <div class="panel-title" style="margin-bottom: 0.5rem;">Quick Presets</div>
+        <div class="presets">
+          <button class="preset-btn" data-t="0.2" data-p="0.5" data-k="3">Strict</button>
+          <button class="preset-btn" data-t="0.7" data-p="0.9" data-k="8">Balanced</button>
+          <button class="preset-btn" data-t="1.5" data-p="1.0" data-k="8">Creative</button>
+        </div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="tempSlider">Temperature (T)</label>
+            <span class="val-pill" id="tempVal">0.70</span>
+          </div>
+          <input type="range" id="tempSlider" min="0.1" max="2.0" step="0.05" value="0.7" />
+          <div class="hint">Low T sharpens the peak; high T flattens the distribution.</div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="topPSlider">Top-P (Nucleus)</label>
+            <span class="val-pill" id="topPVal">0.90</span>
+          </div>
+          <input type="range" id="topPSlider" min="0.1" max="1.0" step="0.05" value="0.9" />
+          <div class="hint">Keeps the smallest token set summing to at least P.</div>
+        </div>
+
+        <div class="control-group">
+          <div class="control-header">
+            <label for="topKSlider">Top-K Cutoff</label>
+            <span class="val-pill" id="topKVal">8</span>
+          </div>
+          <input type="range" id="topKSlider" min="1" max="8" step="1" value="8" />
+          <div class="hint">Hard cap on how many top candidate tokens can be sampled.</div>
+        </div>
+
+        <button class="sample-btn" id="sampleBtn">Sample Next Token</button>
+      </div>
+
+      <!-- Right Panel: Live Visualization -->
+      <div class="panel">
+        <div class="panel-title">Live Probability Distribution</div>
+
+        <div class="prompt-display">
+          <span id="promptText"></span><span class="sampled-token" id="sampledOutput">?</span>
+        </div>
+
+        <div class="metrics">
+          <div class="metric-card">
+            <div class="metric-label">Active Pool</div>
+            <div class="metric-val" id="metricPool">0 / 8</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Top-1 Confidence</div>
+            <div class="metric-val" id="metricTop1">0%</div>
+          </div>
+          <div class="metric-card">
+            <div class="metric-label">Entropy (Bits)</div>
+            <div class="metric-val" id="metricEntropy">0.00</div>
+          </div>
+        </div>
+
+        <div class="token-list" id="tokenList"></div>
+
+        <div class="history-box">
+          Recent samples (click "Sample Next Token" multiple times to observe variance):
+          <div class="history-chips" id="historyChips">
+            <span style="font-size: 0.8rem; opacity: 0.6;">No tokens sampled yet.</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Technical Breakdown -->
+    <section class="explainer">
+      <h2>How It Works Under the Hood</h2>
+      <p style="color: var(--muted); font-size: 0.95rem;">
+        Every step above runs the exact mathematical pipeline used inside modern transformer decoding loops:
+      </p>
+      <div class="steps-grid">
+        <div class="step-box">
+          <h3>1. Logits &amp; Temperature</h3>
+          <p>The neural network outputs raw unnormalized scores <code>z</code>. Dividing by Temperature <code>z / T</code> stretches or compresses differences before exponentiation.</p>
+        </div>
+        <div class="step-box">
+          <h3>2. Softmax Normalization</h3>
+          <p>Applying <code>exp(z/T) / sum(exp(z/T))</code> converts scaled scores into a valid probability distribution summing to 100%.</p>
+        </div>
+        <div class="step-box">
+          <h3>3. Top-K &amp; Nucleus (Top-P)</h3>
+          <p>Low-probability tail tokens are truncated to prevent hallucinations, and the remaining active pool is re-normalized back to 100%.</p>
+        </div>
+        <div class="step-box">
+          <h3>4. Shannon Entropy</h3>
+          <p>Measured in bits via <code>-&Sigma; p log2(p)</code>. Near 0 bits means near-deterministic output; higher bits indicate greater branching uncertainty.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const PROMPTS = {
+      creative: {
+        text: "In 2040, humanity discovered",
+        tokens: [
+          { token: "a", logit: 4.8 },
+          { token: "that", logit: 4.5 },
+          { token: "life", logit: 4.1 },
+          { token: "an", logit: 3.7 },
+          { token: "evidence", logit: 3.3 },
+          { token: "how", logit: 2.8 },
+          { token: "quantum", logit: 2.1 },
+          { token: "bananas", logit: 0.4 }
+        ]
+      },
+      factual: {
+        text: "The capital of France is",
+        tokens: [
+          { token: "Paris", logit: 8.4 },
+          { token: "the", logit: 4.2 },
+          { token: "a", logit: 3.6 },
+          { token: "known", logit: 3.1 },
+          { token: "located", logit: 2.8 },
+          { token: "Lyon", logit: 1.5 },
+          { token: "often", logit: 1.2 },
+          { token: "Berlin", logit: 0.2 }
+        ]
+      },
+      code: {
+        text: "def is_even(n): return n",
+        tokens: [
+          { token: "%", logit: 7.2 },
+          { token: "&", logit: 4.9 },
+          { token: "==", logit: 3.2 },
+          { token: "//", logit: 2.4 },
+          { token: "is", logit: 1.8 },
+          { token: "-", logit: 1.1 },
+          { token: "+", logit: 0.9 },
+          { token: "print", logit: -0.5 }
+        ]
+      }
+    };
+
+    const promptSelect = document.getElementById("promptSelect");
+    const tempSlider = document.getElementById("tempSlider");
+    const topPSlider = document.getElementById("topPSlider");
+    const topKSlider = document.getElementById("topKSlider");
+    const tempVal = document.getElementById("tempVal");
+    const topPVal = document.getElementById("topPVal");
+    const topKVal = document.getElementById("topKVal");
+    const promptText = document.getElementById("promptText");
+    const sampledOutput = document.getElementById("sampledOutput");
+    const tokenList = document.getElementById("tokenList");
+    const metricPool = document.getElementById("metricPool");
+    const metricTop1 = document.getElementById("metricTop1");
+    const metricEntropy = document.getElementById("metricEntropy");
+    const sampleBtn = document.getElementById("sampleBtn");
+    const historyChips = document.getElementById("historyChips");
+
+    let currentDistribution = [];
+    let sampleHistory = [];
+    let lastSampledToken = null;
+
+    function computeDistribution() {
+      const scenario = PROMPTS[promptSelect.value];
+      const T = parseFloat(tempSlider.value);
+      const topP = parseFloat(topPSlider.value);
+      const topK = parseInt(topKSlider.value, 10);
+
+      // 1. Temperature scaling & numerically stable Softmax
+      const scaled = scenario.tokens.map(item => ({
+        ...item,
+        scaledLogit: item.logit / T
+      }));
+
+      const maxLogit = Math.max(...scaled.map(x => x.scaledLogit));
+      const exps = scaled.map(x => Math.exp(x.scaledLogit - maxLogit));
+      const sumExp = exps.reduce((a, b) => a + b, 0);
+
+      const withSoft = scaled.map((item, i) => ({
+        ...item,
+        rawProb: exps[i] / sumExp
+      })).sort((a, b) => b.rawProb - a.rawProb);
+
+      // 2. Apply Top-K and Top-P (Nucleus)
+      let cumProb = 0;
+      const filtered = withSoft.map((item, index) => {
+        const withinK = index < topK;
+        const withinP = index === 0 || cumProb < topP;
+        const included = withinK && withinP;
+        if (withinK) cumProb += item.rawProb;
+        return { ...item, included };
+      });
+
+      // 3. Re-normalize active pool
+      const activeSum = filtered
+        .filter(x => x.included)
+        .reduce((acc, x) => acc + x.rawProb, 0);
+
+      currentDistribution = filtered.map(item => ({
+        ...item,
+        finalProb: item.included ? item.rawProb / activeSum : 0
+      }));
+
+      render(scenario.text);
+    }
+
+    function render(text) {
+      promptText.textContent = text;
+      tempVal.textContent = parseFloat(tempSlider.value).toFixed(2);
+      topPVal.textContent = parseFloat(topPSlider.value).toFixed(2);
+      topKVal.textContent = topKSlider.value;
+
+      const activeItems = currentDistribution.filter(x => x.included);
+      const entropy = activeItems.reduce((h, item) => {
+        if (item.finalProb <= 0) return h;
+        return h - item.finalProb * Math.log2(item.finalProb);
+      }, 0);
+
+      metricPool.textContent = `${activeItems.length} / ${currentDistribution.length}`;
+      metricTop1.textContent = `${(currentDistribution[0].finalProb * 100).toFixed(1)}%`;
+      metricEntropy.textContent = entropy.toFixed(2);
+
+      tokenList.innerHTML = currentDistribution.map(item => {
+        const pct = (item.finalProb * 100).toFixed(1);
+        const rawPct = (item.rawProb * 100).toFixed(1);
+        const barWidth = item.included ? Math.max(pct, 1) : Math.max(rawPct, 1);
+        const isPicked = lastSampledToken === item.token && item.included;
+
+        return `
+          <div class="token-row ${item.included ? "" : "excluded"} ${isPicked ? "active-sample" : ""}">
+            <div class="token-name">
+              <span>"${item.token}"</span>
+              <span class="token-logit">logit: ${item.logit.toFixed(1)}</span>
+            </div>
+            <div class="bar-track">
+              <div class="bar-fill" style="width: ${barWidth}%;"></div>
+            </div>
+            <div class="token-prob">
+              ${item.included ? `${pct}%` : `<span class="excluded-tag">Cut</span>`}
+            </div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function sampleToken() {
+      const r = Math.random();
+      let acc = 0;
+      let chosen = currentDistribution[0].token;
+
+      for (const item of currentDistribution) {
+        if (!item.included) continue;
+        acc += item.finalProb;
+        if (r <= acc) {
+          chosen = item.token;
+          break;
+        }
+      }
+
+      lastSampledToken = chosen;
+      sampledOutput.textContent = chosen;
+      sampleHistory.unshift(chosen);
+      if (sampleHistory.length > 12) sampleHistory.pop();
+
+      historyChips.innerHTML = sampleHistory
+        .map(tok => `<span class="chip">${tok}</span>`)
+        .join("");
+
+      render(PROMPTS[promptSelect.value].text);
+    }
+
+    // Event Listeners
+    [promptSelect, tempSlider, topPSlider, topKSlider].forEach(el => {
+      el.addEventListener("input", () => {
+        if (el === promptSelect) {
+          lastSampledToken = null;
+          sampledOutput.textContent = "?";
+          sampleHistory = [];
+          historyChips.innerHTML = `<span style="font-size: 0.8rem; opacity: 0.6;">No tokens sampled yet.</span>`;
+        }
+        computeDistribution();
+      });
+    });
+
+    document.querySelectorAll(".preset-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        tempSlider.value = btn.dataset.t;
+        topPSlider.value = btn.dataset.p;
+        topKSlider.value = btn.dataset.k;
+        computeDistribution();
+      });
+    });
+
+    sampleBtn.addEventListener("click", sampleToken);
+
+    // Init
+    computeDistribution();
+  </script>
+</body>
+</html>
