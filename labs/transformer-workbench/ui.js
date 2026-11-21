@@ -1,6 +1,6 @@
 /**
- * ThinkModule Lab — Interactive UI, Canvas Telemetry, Attention Arcs & Heatmap Controller
- * Connects TransformerEngine (engine.js) to all 4 interactive workbench stages.
+ * ThinkModule Lab — Interactive UI, Live Streaming, Attention Arcs & Telemetry (v2.0)
+ * Strict causal visibility: zero future-token spoilers during streaming or scrubbing.
  */
 (function () {
   "use strict";
@@ -10,6 +10,43 @@
     console.error("TransformerEngine not loaded.");
     return;
   }
+
+  // Inject lightweight runtime styles for the live cursor & crisp arc overlay
+  (function injectRuntimeStyles() {
+    const style = document.createElement("style");
+    style.textContent = `
+      .stream-cursor {
+        display: inline-block;
+        width: 8px;
+        height: 1.15em;
+        margin-left: 3px;
+        vertical-align: middle;
+        border-radius: 2px;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+        animation: tmBlink 0.85s steps(2, start) infinite;
+      }
+      @keyframes tmBlink {
+        to { opacity: 0.15; }
+      }
+      .arcs-svg {
+        z-index: 4 !important;
+        mix-blend-mode: screen;
+      }
+      .token-stream {
+        row-gap: 0.55rem !important;
+      }
+      .tok.tok-hidden {
+        display: none !important;
+      }
+      .chip-pill.streaming {
+        color: var(--accent);
+        background: var(--accent-soft);
+        border-color: rgba(56, 189, 248, 0.45);
+      }
+    `;
+    document.head.appendChild(style);
+  })();
 
   // ============================================================================
   // APPLICATION STATE
@@ -63,9 +100,11 @@
     activePreset: "balanced",
     trace: null,
     selectedStep: 0,
+    maxRevealedStep: 0,
+    isStreaming: false,
     activeHead: 0,
     causalMask: true,
-    matrixSource: "trace", // "trace" | "bpe"
+    matrixSource: "trace",
     streamAttention: null,
     matrixAttention: null,
     matrixLayout: null,
@@ -81,7 +120,6 @@
   const $ = id => document.getElementById(id);
 
   const dom = {
-    // Controls
     scenarioSelect: $("scenarioSelect"),
     scenarioCategory: $("scenarioCategory"),
     scenarioBadge: $("scenarioBadge"),
@@ -101,7 +139,6 @@
     replayBtn: $("replayBtn"),
     resetBtn: $("resetBtn"),
 
-    // Stage 3: Token Stream & Scrubber
     statusPills: $("statusPills"),
     promptDisplay: $("promptDisplay"),
     streamHeadTabs: $("streamHeadTabs"),
@@ -115,7 +152,6 @@
     timelineSlider: $("timelineSlider"),
     timelineMeta: $("timelineMeta"),
 
-    // Inspector
     candHeaderMeta: $("candHeaderMeta"),
     candList: $("candList"),
     kpiEntropy: $("kpiEntropy"),
@@ -126,11 +162,9 @@
     attendedHeadName: $("attendedHeadName"),
     attendedList: $("attendedList"),
 
-    // Stage 4: Telemetry
     telemetryCanvas: $("telemetryCanvas"),
     telemetryMeta: $("telemetryMeta"),
 
-    // Stage 2: Attention Matrix
     matrixHeadTabs: $("matrixHeadTabs"),
     causalMaskToggle: $("causalMaskToggle"),
     matrixSourceSelect: $("matrixSourceSelect"),
@@ -141,7 +175,6 @@
     headAvgEntropy: $("headAvgEntropy"),
     headDimVal: $("headDimVal"),
 
-    // Stage 1: BPE Tokenizer
     bpeInput: $("bpeInput"),
     bpePresets: $("bpePresets"),
     bpeChars: $("bpeChars"),
@@ -196,7 +229,7 @@
   }
 
   // ============================================================================
-  // CONTROL SYNC & GENERATION LIFECYCLE
+  // LIVE STREAMING & PLAYBACK LIFECYCLE (ZERO SPOILERS)
   // ============================================================================
 
   function stopPlayback() {
@@ -204,17 +237,25 @@
       clearInterval(state.playTimer);
       state.playTimer = null;
     }
+    state.isStreaming = false;
     dom.stepPlayBtn.classList.remove("playing");
     dom.stepPlayBtn.textContent = "▶";
   }
 
-  function startPlayback(fromStart = false) {
+  function startStreaming(startIndex = 0, intervalMs = 85) {
     if (!state.trace || !state.trace.steps.length) return;
     stopPlayback();
 
-    if (fromStart || state.selectedStep >= state.trace.steps.length - 1) {
-      state.selectedStep = 0;
-      renderStepSelection();
+    const lastIdx = state.trace.steps.length - 1;
+    state.selectedStep = Math.max(0, Math.min(startIndex, lastIdx));
+    state.maxRevealedStep = Math.max(state.maxRevealedStep, state.selectedStep);
+    state.isStreaming = state.selectedStep < lastIdx;
+
+    renderStepSelection();
+
+    if (!state.isStreaming) {
+      renderAttentionMatrixSection();
+      return;
     }
 
     dom.stepPlayBtn.classList.add("playing");
@@ -223,11 +264,20 @@
     state.playTimer = setInterval(() => {
       if (!state.trace || state.selectedStep >= state.trace.steps.length - 1) {
         stopPlayback();
+        renderStepSelection();
+        renderAttentionMatrixSection();
         return;
       }
       state.selectedStep += 1;
+      state.maxRevealedStep = Math.max(state.maxRevealedStep, state.selectedStep);
       renderStepSelection();
-    }, 150);
+
+      if (state.selectedStep === state.trace.steps.length - 1) {
+        stopPlayback();
+        renderStepSelection();
+        renderAttentionMatrixSection();
+      }
+    }, intervalMs);
   }
 
   function syncControlsFromState() {
@@ -256,12 +306,10 @@
     dom.topKSlider.disabled = isGreedy || isMinPOnly;
     dom.minPSlider.disabled = isGreedy;
 
-    // Preset highlight
     dom.presetGrid.querySelectorAll(".preset-btn").forEach(btn => {
       btn.classList.toggle("active", btn.dataset.preset === state.activePreset);
     });
 
-    // Scenario metadata
     const sc = Engine.SCENARIOS.find(s => s.id === state.scenarioId);
     if (sc) {
       dom.scenarioCategory.textContent = sc.category;
@@ -269,12 +317,23 @@
     }
   }
 
-  function runNewGeneration(autoPlay = false) {
+  function runNewGeneration(streamLive = true) {
     stopPlayback();
     state.trace = Engine.generateTrace(state.scenarioId, state.params);
-    state.selectedStep = autoPlay ? 0 : Math.max(0, state.trace.steps.length - 1);
-    recomputeAttentionAndRender();
-    if (autoPlay) startPlayback(true);
+    state.selectedStep = 0;
+    state.maxRevealedStep = streamLive ? 0 : Math.max(0, state.trace.steps.length - 1);
+
+    const genTokens = state.trace.steps.map(s => s.token);
+    state.streamAttention = Engine.computeAttention(genTokens, state.activeHead, state.causalMask);
+
+    renderTokenStreamDom();
+    if (streamLive) {
+      startStreaming(0, 85);
+    } else {
+      state.selectedStep = Math.max(0, state.trace.steps.length - 1);
+      renderStepSelection();
+      renderAttentionMatrixSection();
+    }
   }
 
   function triggerCounterfactualBranch(overrideToken) {
@@ -282,12 +341,18 @@
     stopPlayback();
     const forkStep = state.selectedStep;
     state.trace = Engine.branchFromStep(state.trace, forkStep, overrideToken, state.params);
-    state.selectedStep = Math.min(forkStep, state.trace.steps.length - 1);
-    recomputeAttentionAndRender();
+    state.maxRevealedStep = forkStep;
+
+    const genTokens = state.trace.steps.map(s => s.token);
+    state.streamAttention = Engine.computeAttention(genTokens, state.activeHead, state.causalMask);
+
+    renderTokenStreamDom();
+    // Stream the brand-new downstream branch live from the exact fork token!
+    startStreaming(forkStep, 80);
   }
 
   // ============================================================================
-  // STAGE 3: TOKEN STREAM, ATTENTION ARCS & INSPECTOR
+  // STAGE 3: TOKEN STREAM, CAUSAL VISIBILITY, ATTENTION ARCS & INSPECTOR
   // ============================================================================
 
   function renderHeadTabs() {
@@ -303,35 +368,42 @@
 
   function recomputeAttentionAndRender() {
     if (!state.trace) return;
-
     const genTokens = state.trace.steps.map(s => s.token);
     state.streamAttention = Engine.computeAttention(genTokens, state.activeHead, state.causalMask);
-
-    renderStatusPills();
-    renderTokenStreamDom();
     renderStepSelection();
     renderAttentionMatrixSection();
   }
 
-  function renderStatusPills() {
-    const s = state.trace.summary;
-    const pills = [
-      `<span class="chip-pill">${s.totalTokens} tokens</span>`,
-      `<span class="chip-pill">Avg H: ${s.avgEntropy.toFixed(2)} bits</span>`,
-      `<span class="chip-pill">PPL: ${s.finalPerplexity.toFixed(2)}</span>`
-    ];
+  function renderStatusPills(visibleSteps, isDone) {
+    const count = visibleSteps.length;
+    const avgH = count
+      ? visibleSteps.reduce((acc, s) => acc + s.metrics.entropy, 0) / count
+      : 0;
+    const ppl = count ? visibleSteps[count - 1].metrics.cumPerplexity : 1;
+    const hallCount = visibleSteps.filter(s => s.isHallucination).length;
+    const loopSeen = visibleSteps.some(s => s.isLoopStep);
+    const branchTags = [...new Set(visibleSteps.map(s => s.branchTag).filter(Boolean))];
 
-    for (const tag of s.branchTags) {
+    const pills = [];
+    if (state.isStreaming) {
+      pills.push(`<span class="chip-pill streaming">● Generating… (${count})</span>`);
+    } else {
+      pills.push(`<span class="chip-pill">${count} token${count === 1 ? "" : "s"}</span>`);
+    }
+    pills.push(`<span class="chip-pill">Avg H: ${avgH.toFixed(2)} bits</span>`);
+    pills.push(`<span class="chip-pill">PPL: ${ppl.toFixed(2)}</span>`);
+
+    for (const tag of branchTags) {
       if (tag === "Repetition Loop") continue;
       pills.push(`<span class="chip-pill branch">${escHtml(tag)}</span>`);
     }
 
-    if (s.loopDetected) {
+    if (loopSeen) {
       pills.push(`<span class="chip-pill loop">⚠ Degeneration Loop</span>`);
     }
-    if (s.hallucinationCount > 0) {
-      pills.push(`<span class="chip-pill halluc">⚠ ${s.hallucinationCount} Hallucination Token${s.hallucinationCount > 1 ? "s" : ""}</span>`);
-    } else if (!s.loopDetected) {
+    if (hallCount > 0) {
+      pills.push(`<span class="chip-pill halluc">⚠ ${hallCount} Hallucination Token${hallCount > 1 ? "s" : ""}</span>`);
+    } else if (isDone && !loopSeen) {
       pills.push(`<span class="chip-pill ok">✓ Coherent Trajectory</span>`);
     }
 
@@ -341,7 +413,7 @@
 
   function renderTokenStreamDom() {
     const steps = state.trace.steps;
-    dom.tokenStream.innerHTML = steps
+    const chipsHtml = steps
       .map((st, idx) => {
         const cls = ["tok"];
         if (st.isCounterfactual) cls.push("tok-counterfactual");
@@ -353,6 +425,7 @@
       })
       .join("");
 
+    dom.tokenStream.innerHTML = chipsHtml + `<span class="stream-cursor" id="streamCursor" aria-hidden="true"></span>`;
     dom.timelineSlider.max = String(Math.max(0, steps.length - 1));
   }
 
@@ -362,30 +435,41 @@
 
     const idx = Math.max(0, Math.min(state.selectedStep, steps.length - 1));
     state.selectedStep = idx;
+    state.maxRevealedStep = Math.max(state.maxRevealedStep, idx);
+
     const step = steps[idx];
+    const isComplete = idx === steps.length - 1 && !state.isStreaming;
+    const visibleSteps = steps.slice(0, idx + 1);
 
     dom.timelineSlider.value = String(idx);
-    dom.timelineMeta.innerHTML = `Step <strong>#${idx + 1}</strong> / ${steps.length} &bull; <code>${escHtml(step.displayToken)}</code> [${step.tokenId}]`;
+    const totalDisplay = state.isStreaming ? "…" : String(steps.length);
+    dom.timelineMeta.innerHTML = `Step <strong>#${idx + 1}</strong> / ${totalDisplay} &bull; <code>${escHtml(step.displayToken)}</code> [${step.tokenId}]`;
 
-    // Update token classes (future dimming, selected highlight, attended tokens)
+    renderStatusPills(visibleSteps, isComplete);
+
+    // Causal visibility: hide all tokens after selectedStep so zero future spoilers leak
     const attnRow = state.streamAttention && state.streamAttention.matrix[idx] ? state.streamAttention.matrix[idx] : [];
     const topAttended = attnRow
       .map((w, j) => ({ j, w }))
-      .filter(x => x.j !== idx && x.w >= 0.08)
+      .filter(x => x.j < idx && x.w >= 0.08)
       .sort((a, b) => b.w - a.w)
       .slice(0, 6);
     const attendedSet = new Set(topAttended.map(x => x.j));
 
     const tokEls = dom.tokenStream.querySelectorAll(".tok");
     tokEls.forEach((el, i) => {
+      el.classList.toggle("tok-hidden", i > idx);
       el.classList.toggle("tok-selected", i === idx);
-      el.classList.toggle("tok-future", i > idx);
-      el.classList.toggle("tok-attended", attendedSet.has(i) && i <= idx);
+      el.classList.toggle("tok-attended", attendedSet.has(i) && i < idx);
     });
 
-    // Render Inspector, Telemetry & SVG Arcs
+    const cursorEl = document.getElementById("streamCursor");
+    if (cursorEl) {
+      cursorEl.style.display = idx < steps.length - 1 || state.isStreaming ? "inline-block" : "none";
+    }
+
     renderCandidateInspector(step);
-    renderDiagnostics(step, attnRow);
+    renderDiagnostics(step, attnRow, idx);
     renderTelemetryChart();
     requestAnimationFrame(() => drawAttentionArcs(idx, attnRow));
   }
@@ -393,7 +477,7 @@
   function drawAttentionArcs(selectedIdx, attnRow) {
     const svg = dom.arcsSvg;
     const viewport = dom.arcsViewport;
-    if (!svg || !viewport || !attnRow || !attnRow.length) {
+    if (!svg || !viewport || !attnRow || !attnRow.length || selectedIdx === 0) {
       if (svg) svg.innerHTML = "";
       return;
     }
@@ -411,12 +495,12 @@
     const x2 = targetRect.left - vpRect.left + targetRect.width / 2;
     const y2 = targetRect.top - vpRect.top;
 
-    // Pick top 7 strongest attention weights (excluding self)
+    // Only draw arcs from currently visible preceding tokens (0 .. selectedIdx - 1)
     const links = attnRow
       .map((weight, j) => ({ j, weight }))
-      .filter(item => item.j !== selectedIdx && item.weight >= 0.05 && (!state.causalMask || item.j < selectedIdx))
+      .filter(item => item.j < selectedIdx && item.weight >= 0.06)
       .sort((a, b) => b.weight - a.weight)
-      .slice(0, 7);
+      .slice(0, 6);
 
     const maxW = links.length ? links[0].weight : 1;
 
@@ -428,13 +512,14 @@
       const y1 = srcRect.top - vpRect.top;
 
       const dx = Math.abs(x2 - x1);
-      const lift = Math.min(54, Math.max(20, dx * 0.18));
+      const sameLine = Math.abs(y1 - y2) < 12;
+      const lift = sameLine ? Math.min(44, Math.max(18, dx * 0.16)) : Math.min(48, Math.max(24, dx * 0.12));
       const cx = (x1 + x2) / 2;
       const cy = Math.min(y1, y2) - lift;
 
       const norm = link.weight / Math.max(maxW, 0.01);
-      const strokeWidth = (1.1 + norm * 2.8).toFixed(2);
-      const opacity = (0.25 + norm * 0.72).toFixed(2);
+      const strokeWidth = (1.0 + norm * 1.4).toFixed(2);
+      const opacity = (0.20 + norm * 0.45).toFixed(2);
 
       return `
         <path d="M ${x1.toFixed(1)} ${y1.toFixed(1)} Q ${cx.toFixed(1)} ${cy.toFixed(1)} ${x2.toFixed(1)} ${y2.toFixed(1)}"
@@ -443,7 +528,7 @@
               stroke-width="${strokeWidth}"
               stroke-opacity="${opacity}"
               stroke-linecap="round" />
-        <circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="${(2 + norm * 2).toFixed(1)}"
+        <circle cx="${x1.toFixed(1)}" cy="${y1.toFixed(1)}" r="${(1.8 + norm * 1.4).toFixed(1)}"
                 fill="${head.color}" fill-opacity="${opacity}" />
       `;
     });
@@ -474,7 +559,7 @@
 
         const actionHtml = isChosen
           ? `<span class="branch-btn current-badge">Selected</span>`
-          : `<button type="button" class="branch-btn" data-branch-token="${escHtml(c.token)}" title="Force this token and regenerate downstream trajectory">Branch ↱</button>`;
+          : `<button type="button" class="branch-btn" data-cand-index="${rank}" title="Force this token and stream a new trajectory from here">Branch ↱</button>`;
 
         return `
           <div class="${rowCls.join(" ")}">
@@ -501,7 +586,7 @@
       .join("");
   }
 
-  function renderDiagnostics(step, attnRow) {
+  function renderDiagnostics(step, attnRow, idx) {
     const m = step.metrics;
     dom.kpiEntropy.textContent = `${m.entropy.toFixed(2)} bits`;
     dom.kpiEntropy.className = "kpi-value " + (m.entropy > 1.8 ? "amber" : m.entropy < 0.5 ? "green" : "accent");
@@ -523,7 +608,7 @@
 
     const top = attnRow
       .map((w, j) => ({ j, w, tok: state.trace.steps[j].token }))
-      .filter(x => x.w > 0.01)
+      .filter(x => x.j <= idx && x.w > 0.01)
       .sort((a, b) => b.w - a.w)
       .slice(0, 4);
 
@@ -545,7 +630,7 @@
   }
 
   // ============================================================================
-  // STAGE 4: LIVE TELEMETRY CANVAS (ENTROPY & PROBABILITY OVER TIME)
+  // STAGE 4: LIVE TELEMETRY CANVAS (REVEALS IN SYNC WITH STREAM)
   // ============================================================================
 
   function renderTelemetryChart() {
@@ -554,7 +639,10 @@
 
     const { ctx, width, height } = setupHiDpiCanvas(canvas, 190);
     const steps = state.trace.steps;
-    const n = steps.length;
+    const totalN = steps.length;
+    const revealedEnd = Math.min(totalN - 1, Math.max(state.selectedStep, state.maxRevealedStep));
+    const plotEnd = state.isStreaming ? state.selectedStep : revealedEnd;
+    const revealedSlice = steps.slice(0, plotEnd + 1);
 
     const pad = { top: 20, right: 20, bottom: 28, left: 42 };
     const plotW = width - pad.left - pad.right;
@@ -562,13 +650,12 @@
 
     ctx.clearRect(0, 0, width, height);
 
-    // Subtle grid lines
     ctx.strokeStyle = "rgba(34, 48, 79, 0.7)";
     ctx.lineWidth = 1;
     ctx.font = "10px ui-monospace, Menlo, monospace";
     ctx.fillStyle = "#7f92b0";
 
-    const maxEntropy = Math.max(2.6, ...steps.map(s => s.metrics.entropy));
+    const maxEntropy = Math.max(2.6, ...revealedSlice.map(s => s.metrics.entropy));
 
     for (let g = 0; g <= 4; g++) {
       const y = pad.top + (plotH * g) / 4;
@@ -581,52 +668,75 @@
       ctx.fillText(`${labelVal}b`, 6, y + 3);
     }
 
-    const xFor = i => (n === 1 ? pad.left + plotW / 2 : pad.left + (i / (n - 1)) * plotW);
+    const xFor = i => (totalN === 1 ? pad.left + plotW / 2 : pad.left + (i / (totalN - 1)) * plotW);
     const yEnt = e => pad.top + plotH * (1 - e / maxEntropy);
     const yProb = p => pad.top + plotH * (1 - p);
 
-    // Entropy area fill
+    // Entropy area fill up to active step
+    const activeEnd = state.selectedStep;
     const grad = ctx.createLinearGradient(0, pad.top, 0, height - pad.bottom);
     grad.addColorStop(0, "rgba(56, 189, 248, 0.30)");
     grad.addColorStop(1, "rgba(56, 189, 248, 0.01)");
 
-    ctx.beginPath();
-    ctx.moveTo(xFor(0), height - pad.bottom);
-    steps.forEach((s, i) => ctx.lineTo(xFor(i), yEnt(s.metrics.entropy)));
-    ctx.lineTo(xFor(n - 1), height - pad.bottom);
-    ctx.closePath();
-    ctx.fillStyle = grad;
-    ctx.fill();
+    if (activeEnd > 0) {
+      ctx.beginPath();
+      ctx.moveTo(xFor(0), height - pad.bottom);
+      for (let i = 0; i <= activeEnd; i++) {
+        ctx.lineTo(xFor(i), yEnt(steps[i].metrics.entropy));
+      }
+      ctx.lineTo(xFor(activeEnd), height - pad.bottom);
+      ctx.closePath();
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
 
-    // Chosen probability dashed line (emerald)
+    // Subtle preview of already-revealed steps ahead of rewind cursor (never during live streaming)
+    if (!state.isStreaming && plotEnd > activeEnd) {
+      ctx.save();
+      ctx.setLineDash([2, 4]);
+      ctx.strokeStyle = "rgba(127, 146, 176, 0.35)";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let i = activeEnd; i <= plotEnd; i++) {
+        const x = xFor(i);
+        const y = yEnt(steps[i].metrics.entropy);
+        if (i === activeEnd) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.restore();
+    }
+
+    // Chosen probability dashed line (emerald) up to active step
     ctx.save();
     ctx.setLineDash([4, 4]);
     ctx.strokeStyle = "#34d399";
     ctx.lineWidth = 1.6;
     ctx.beginPath();
-    steps.forEach((s, i) => {
+    for (let i = 0; i <= activeEnd; i++) {
       const x = xFor(i);
-      const y = yProb(s.metrics.chosenProb);
+      const y = yProb(steps[i].metrics.chosenProb);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
-    });
+    }
     ctx.stroke();
     ctx.restore();
 
-    // Entropy main line (cyan)
+    // Entropy main line (cyan) up to active step
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 2.2;
     ctx.beginPath();
-    steps.forEach((s, i) => {
+    for (let i = 0; i <= activeEnd; i++) {
       const x = xFor(i);
-      const y = yEnt(s.metrics.entropy);
+      const y = yEnt(steps[i].metrics.entropy);
       if (i === 0) ctx.moveTo(x, y);
       else ctx.lineTo(x, y);
-    });
+    }
     ctx.stroke();
 
-    // Markers for Hallucinations, Loops & Counterfactual Overrides
-    steps.forEach((s, i) => {
+    // Markers for revealed steps up to activeEnd
+    for (let i = 0; i <= activeEnd; i++) {
+      const s = steps[i];
       const x = xFor(i);
       const y = yEnt(s.metrics.entropy);
 
@@ -646,11 +756,11 @@
         ctx.arc(x, y, 4, 0, Math.PI * 2);
         ctx.fill();
       }
-    });
+    }
 
     // Selected step cursor
-    const selX = xFor(state.selectedStep);
-    const selStep = steps[state.selectedStep];
+    const selX = xFor(activeEnd);
+    const selStep = steps[activeEnd];
     ctx.strokeStyle = "rgba(226, 232, 240, 0.7)";
     ctx.lineWidth = 1.2;
     ctx.beginPath();
@@ -665,12 +775,15 @@
 
     // X-axis tick labels
     ctx.fillStyle = "#7f92b0";
-    const tickEvery = Math.max(1, Math.ceil(n / 10));
-    for (let i = 0; i < n; i += tickEvery) {
+    const tickEvery = Math.max(1, Math.ceil(totalN / 10));
+    for (let i = 0; i < totalN; i += tickEvery) {
       ctx.fillText(`#${i + 1}`, xFor(i) - 8, height - 8);
     }
 
-    dom.telemetryMeta.textContent = `Click chart to scrub • Peak Entropy: ${Math.max(...steps.map(s => s.metrics.entropy)).toFixed(2)} bits`;
+    const peakH = Math.max(...steps.slice(0, activeEnd + 1).map(s => s.metrics.entropy));
+    dom.telemetryMeta.textContent = state.isStreaming
+      ? `Streaming live… Peak Entropy so far: ${peakH.toFixed(2)} bits`
+      : `Click chart to scrub • Peak Entropy: ${peakH.toFixed(2)} bits`;
   }
 
   function handleTelemetryScrub(evt) {
@@ -683,6 +796,7 @@
     const idx = Math.round(relX * (state.trace.steps.length - 1));
     stopPlayback();
     state.selectedStep = idx;
+    state.maxRevealedStep = Math.max(state.maxRevealedStep, idx);
     renderStepSelection();
   }
 
@@ -695,7 +809,8 @@
     if (state.matrixSource === "bpe" && state.bpeResult && state.bpeResult.tokens.length) {
       tokens = state.bpeResult.tokens.slice(0, 22).map(t => t.text);
     } else if (state.trace) {
-      tokens = state.trace.steps.slice(0, 22).map(s => s.token);
+      const cap = Math.min(22, state.maxRevealedStep + 1);
+      tokens = state.trace.steps.slice(0, Math.max(1, cap)).map(s => s.token);
     }
 
     state.matrixAttention = Engine.computeAttention(tokens, state.activeHead, state.causalMask);
@@ -719,8 +834,8 @@
     const n = attn.tokens.length;
     if (!n) return;
 
-    const padLeft = 86;
-    const padTop = 76;
+    const padLeft = 92;
+    const padTop = 78;
     const padRight = 16;
     const padBottom = 16;
 
@@ -731,7 +846,6 @@
 
     state.matrixLayout = { originX, originY, cell, n };
 
-    // Draw cells
     for (let i = 0; i < n; i++) {
       for (let j = 0; j < n; j++) {
         const x = originX + j * cell;
@@ -739,9 +853,8 @@
         const isMasked = state.causalMask && j > i;
 
         if (isMasked) {
-          ctx.fillStyle = "rgba(15, 23, 42, 0.7)";
+          ctx.fillStyle = "rgba(15, 23, 42, 0.72)";
           ctx.fillRect(x + 0.5, y + 0.5, cell - 1, cell - 1);
-          // Subtle diagonal hatch for masked future tokens
           ctx.strokeStyle = "rgba(51, 65, 85, 0.35)";
           ctx.lineWidth = 0.7;
           ctx.beginPath();
@@ -757,7 +870,6 @@
       }
     }
 
-    // Hover highlight
     if (hoverCell && hoverCell.i >= 0 && hoverCell.i < n && hoverCell.j >= 0 && hoverCell.j < n) {
       ctx.strokeStyle = "#ffffff";
       ctx.lineWidth = 1.8;
@@ -769,22 +881,19 @@
       );
     }
 
-    // Row (Query) and Column (Key) labels
-    const fontSize = Math.max(9, Math.min(11, Math.floor(cell * 0.62)));
+    const fontSize = Math.max(9, Math.min(11, Math.floor(cell * 0.6)));
     ctx.font = `${fontSize}px ui-monospace, Menlo, monospace`;
 
     for (let i = 0; i < n; i++) {
-      const label = formatTokLabel(attn.tokens[i]).trim().slice(0, 9) || "␣";
+      const label = formatTokLabel(attn.tokens[i]).trim().slice(0, 10) || "␣";
       const isHoveredRow = hoverCell && hoverCell.i === i;
       const isHoveredCol = hoverCell && hoverCell.j === i;
 
-      // Left Query label
       ctx.fillStyle = isHoveredRow ? "#ffffff" : "#94a3b8";
       ctx.textAlign = "right";
       ctx.textBaseline = "middle";
       ctx.fillText(label, originX - 8, originY + i * cell + cell / 2);
 
-      // Top Key label (rotated -45 deg)
       ctx.save();
       ctx.translate(originX + i * cell + cell / 2, originY - 8);
       ctx.rotate(-Math.PI / 4);
@@ -795,7 +904,6 @@
       ctx.restore();
     }
 
-    // Axis titles
     ctx.fillStyle = "#7f92b0";
     ctx.font = "10px ui-monospace, Menlo, monospace";
     ctx.textAlign = "left";
@@ -913,29 +1021,26 @@
   // ============================================================================
 
   function bindEvents() {
-    // Scenario selector
     dom.scenarioSelect.addEventListener("change", () => {
       state.scenarioId = dom.scenarioSelect.value;
       syncControlsFromState();
-      runNewGeneration(false);
+      runNewGeneration(true);
     });
 
-    // Presets
     dom.presetGrid.addEventListener("click", evt => {
       const btn = evt.target.closest(".preset-btn");
       if (!btn || !PRESETS[btn.dataset.preset]) return;
       state.activePreset = btn.dataset.preset;
       state.params = { ...state.params, ...PRESETS[btn.dataset.preset] };
       syncControlsFromState();
-      runNewGeneration(false);
+      runNewGeneration(true);
     });
 
-    // Strategy & Sliders
     dom.strategySelect.addEventListener("change", () => {
       state.activePreset = null;
       state.params.strategy = dom.strategySelect.value;
       syncControlsFromState();
-      runNewGeneration(false);
+      runNewGeneration(true);
     });
 
     const sliderBindings = [
@@ -952,20 +1057,18 @@
         state.params[key] = parser(el.value);
         syncControlsFromState();
       });
-      el.addEventListener("change", () => runNewGeneration(false));
+      el.addEventListener("change", () => runNewGeneration(true));
     });
 
-    // Action Buttons
-    dom.generateBtn.addEventListener("click", () => runNewGeneration(false));
-    dom.replayBtn.addEventListener("click", () => startPlayback(true));
+    dom.generateBtn.addEventListener("click", () => runNewGeneration(true));
+    dom.replayBtn.addEventListener("click", () => startStreaming(0, 95));
     dom.resetBtn.addEventListener("click", () => {
       state.activePreset = "balanced";
       state.params = { ...Engine.DEFAULT_PARAMS };
       syncControlsFromState();
-      runNewGeneration(false);
+      runNewGeneration(true);
     });
 
-    // Token Stream click
     dom.tokenStream.addEventListener("click", evt => {
       const btn = evt.target.closest(".tok");
       if (!btn) return;
@@ -974,10 +1077,10 @@
       renderStepSelection();
     });
 
-    // Scrubber controls
     dom.timelineSlider.addEventListener("input", () => {
       stopPlayback();
       state.selectedStep = parseInt(dom.timelineSlider.value, 10);
+      state.maxRevealedStep = Math.max(state.maxRevealedStep, state.selectedStep);
       renderStepSelection();
     });
 
@@ -991,6 +1094,7 @@
       stopPlayback();
       if (!state.trace) return;
       state.selectedStep = Math.min(state.trace.steps.length - 1, state.selectedStep + 1);
+      state.maxRevealedStep = Math.max(state.maxRevealedStep, state.selectedStep);
       renderStepSelection();
     });
 
@@ -998,15 +1102,21 @@
       stopPlayback();
       if (!state.trace) return;
       state.selectedStep = state.trace.steps.length - 1;
+      state.maxRevealedStep = state.selectedStep;
       renderStepSelection();
+      renderAttentionMatrixSection();
     });
 
     dom.stepPlayBtn.addEventListener("click", () => {
-      if (state.playTimer) stopPlayback();
-      else startPlayback(false);
+      if (state.playTimer) {
+        stopPlayback();
+        renderStepSelection();
+      } else {
+        const restart = state.trace && state.selectedStep >= state.trace.steps.length - 1;
+        startStreaming(restart ? 0 : state.selectedStep, 90);
+      }
     });
 
-    // Keyboard arrow scrubbing (when not typing in textarea/select)
     document.addEventListener("keydown", evt => {
       const tag = (evt.target && evt.target.tagName) || "";
       if (tag === "TEXTAREA" || tag === "INPUT" || tag === "SELECT") return;
@@ -1021,18 +1131,21 @@
         evt.preventDefault();
         stopPlayback();
         state.selectedStep = Math.min(state.trace.steps.length - 1, state.selectedStep + 1);
+        state.maxRevealedStep = Math.max(state.maxRevealedStep, state.selectedStep);
         renderStepSelection();
       }
     });
 
-    // Counterfactual Branch button click
+    // Counterfactual Branch button click (safe index lookup, no escaping issues)
     dom.candList.addEventListener("click", evt => {
-      const btn = evt.target.closest(".branch-btn[data-branch-token]");
-      if (!btn) return;
-      triggerCounterfactualBranch(btn.dataset.branchToken);
+      const btn = evt.target.closest(".branch-btn[data-cand-index]");
+      if (!btn || !state.trace) return;
+      const step = state.trace.steps[state.selectedStep];
+      const rank = parseInt(btn.dataset.candIndex, 10);
+      if (!step || !step.candidates[rank]) return;
+      triggerCounterfactualBranch(step.candidates[rank].token);
     });
 
-    // Head tab switching (synced across arcs & heatmap)
     const onHeadTabClick = evt => {
       const btn = evt.target.closest(".head-tab");
       if (!btn) return;
@@ -1043,7 +1156,6 @@
     dom.streamHeadTabs.addEventListener("click", onHeadTabClick);
     dom.matrixHeadTabs.addEventListener("click", onHeadTabClick);
 
-    // Attention Matrix controls
     dom.causalMaskToggle.addEventListener("change", () => {
       state.causalMask = dom.causalMaskToggle.checked;
       recomputeAttentionAndRender();
@@ -1059,7 +1171,6 @@
       if (state.matrixAttention) drawAttentionHeatmap(state.matrixAttention, null);
     });
 
-    // Telemetry chart interactive scrubbing
     let draggingTelemetry = false;
     dom.telemetryCanvas.addEventListener("mousedown", evt => {
       draggingTelemetry = true;
@@ -1072,7 +1183,6 @@
       draggingTelemetry = false;
     });
 
-    // BPE Tokenizer Lab
     dom.bpeInput.addEventListener("input", renderBPELab);
 
     dom.bpePresets.addEventListener("click", evt => {
@@ -1085,18 +1195,19 @@
       }
     });
 
-    dom.bpeTokensBox.addEventListener("mouseover", evt => {
+    const onBpeInspect = evt => {
       const chip = evt.target.closest(".bpe-chip");
       if (!chip) return;
       state.bpeSelectedIdx = parseInt(chip.dataset.bpeIdx, 10);
       renderBPETokenDetail(state.bpeSelectedIdx);
-    });
+    };
+    dom.bpeTokensBox.addEventListener("mouseover", onBpeInspect);
+    dom.bpeTokensBox.addEventListener("click", onBpeInspect);
 
     dom.bpeMergeSlider.addEventListener("input", () => {
       renderBPEMergeStep(parseInt(dom.bpeMergeSlider.value, 10));
     });
 
-    // Responsive redraw on window resize
     let resizeRaf = null;
     window.addEventListener("resize", () => {
       if (resizeRaf) cancelAnimationFrame(resizeRaf);
@@ -1113,7 +1224,6 @@
   }
 
   function init() {
-    // Populate scenario dropdown
     dom.scenarioSelect.innerHTML = Engine.SCENARIOS.map(
       sc => `<option value="${escHtml(sc.id)}">${escHtml(sc.title)}</option>`
     ).join("");
@@ -1123,10 +1233,10 @@
     syncControlsFromState();
     bindEvents();
 
-    // Initialize BPE Lab first, then generate initial full trace
     dom.bpeInput.value = BPE_EXAMPLES.strawberry;
     renderBPELab();
-    runNewGeneration(false);
+    // Start with live token-by-token streaming (zero future spoilers)
+    runNewGeneration(true);
   }
 
   if (document.readyState === "loading") {
