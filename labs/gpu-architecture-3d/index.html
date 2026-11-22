@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D AI-GPU Architecture & Thermal Studio — Mehmet Rusen Ayvaz</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- Full-Viewport Real WebGL Canvas -->
+  <div id="viewport"></div>
+
+  <div id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <span>Initializing WebGL PBR Studio &amp; Silicon Micro-Textures&hellip;</span>
+  </div>
+
+  <!-- Minimalist Top Navigation -->
+  <header class="hud-top">
+    <div class="brand">
+      <span class="brand-name">Mehmet Rusen Ayvaz <span class="dot">.lab</span></span>
+      <span class="pill">Module 05 &bull; WebGL PBR</span>
+    </div>
+    <div class="top-actions">
+      <button class="ghost-btn" id="thermalBtn" title="Toggle FLIR Thermal IR View (T)">Thermal IR: OFF</button>
+      <button class="ghost-btn active" id="orbitBtn" title="Toggle Studio Auto-Orbit">Auto-Orbit</button>
+      <button class="ghost-btn" id="resetCamBtn" title="Reset Camera (R)">Reset View</button>
+      <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
+    </div>
+  </header>
+
+  <!-- Left Floating Telemetry Pill -->
+  <aside class="hud-left">
+    <div class="eyebrow">SXM-Class CoWoS-S Accelerator</div>
+    <h1>AI-GPU Exploded Architecture</h1>
+    <div class="status-chip" id="telStatus">DECODE &bull; MEMORY WALL</div>
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="m-label">Junction Temp</span>
+        <span class="m-val" id="telTemp">62.4 &deg;C</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Board Power</span>
+        <span class="m-val" id="telPower">410 W</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Core Clock</span>
+        <span class="m-val" id="telClock">1980 MHz</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Tensor MFU</span>
+        <span class="m-val accent" id="telMfu">4.5%</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">HBM3e Bus</span>
+        <span class="m-val cyan" id="telBw">3.05 TB/s</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Throttling</span>
+        <span class="m-val" id="telThrottle">0.0%</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Floating Layer Inspector -->
+  <aside class="hud-right" id="inspectorCard">
+    <div class="insp-head">
+      <span class="insp-tag" id="inspectTag">FULL ASSEMBLY</span>
+      <span class="insp-hint">Drag 360&deg; &bull; Scroll Zoom</span>
+    </div>
+    <h2 id="inspectTitle">6-Layer CoWoS-S AI Package</h2>
+    <p id="inspectDesc">
+      Drag the Explode slider below to separate the anodized fin array, copper vapor chamber,
+      6&times; 8-Hi HBM3e stacks, 132-SM Tensor Core silicon die, CoWoS-S interposer, BGA solder array, and SXM carrier PCB.
+    </p>
+    <div class="insp-specs" id="inspectSpecs"></div>
+  </aside>
+
+  <!-- Bottom Minimalist Control Dock -->
+  <footer class="hud-dock">
+    <div class="dock-section sliders">
+      <label class="slider-wrap">
+        <div class="s-head"><span>Exploded View</span><strong id="explodeVal">55%</strong></div>
+        <input type="range" id="explodeSlider" min="0" max="100" step="1" value="55" />
+      </label>
+      <label class="slider-wrap">
+        <div class="s-head"><span>Liquid / Air Cooling</span><strong id="coolingVal">100%</strong></div>
+        <input type="range" id="coolingSlider" min="20" max="100" step="1" value="100" />
+      </label>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Workload</span>
+      <div class="seg-group" id="workloadGroup">
+        <button class="seg active" data-mode="decode">Memory Wall</button>
+        <button class="seg" data-mode="prefill">Prefill Compute</button>
+        <button class="seg" data-mode="stress">740W Thermal Stress</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Inspect Layer</span>
+      <div class="layer-group" id="layerGroup">
+        <button class="l-btn active" data-layer="all">All</button>
+        <button class="l-btn" data-layer="5">Fin Shroud</button>
+        <button class="l-btn" data-layer="4">Vapor Ch.</button>
+        <button class="l-btn" data-layer="3">Die &amp; HBM3</button>
+        <button class="l-btn" data-layer="2">Interposer</button>
+        <button class="l-btn" data-layer="1">BGA</button>
+        <button class="l-btn" data-layer="0">PCB / VRM</button>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>

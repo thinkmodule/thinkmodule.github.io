@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>3D Autonomous Driving, LiDAR & Sensor Fusion Studio — Mehmet Rusen Ayvaz</title>
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <div id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <span>Initializing WebGL PBR Highway, 64-Channel LiDAR &amp; EKF Sensor Fusion&hellip;</span>
+  </div>
+
+  <!-- Minimalist Top Navigation -->
+  <header class="hud-top">
+    <div class="brand">
+      <span class="brand-name">Mehmet Rusen Ayvaz <span class="dot">.lab</span></span>
+      <span class="pill">Module 06 &bull; ADAS Perception 3D</span>
+    </div>
+    <div class="top-actions">
+      <button class="ghost-btn active" data-cam="chase" id="camChaseBtn">3/4 Chase</button>
+      <button class="ghost-btn" data-cam="bev" id="camBevBtn">Top BEV</button>
+      <button class="ghost-btn" data-cam="hood" id="camHoodBtn">Hood Cam</button>
+      <span class="top-sep"></span>
+      <button class="ghost-btn" id="playPauseBtn">Pause</button>
+      <button class="ghost-btn" id="replayBtn">Replay Test</button>
+      <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
+    </div>
+  </header>
+
+  <!-- Left Floating ADAS Telemetry -->
+  <aside class="hud-left">
+    <div class="eyebrow">ADAS / AV Perception Testbench</div>
+    <h1>3D Sensor Fusion &amp; LiDAR</h1>
+    <div class="status-chip optimal" id="adasStatus">NOMINAL &bull; EKF FUSION LOCK</div>
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="m-label">Ego Velocity</span>
+        <span class="m-val" id="telSpeed">50 km/h</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Min TTC</span>
+        <span class="m-val cyan" id="telTtc">&infin;</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Fused Conf.</span>
+        <span class="m-val accent" id="telConf">98%</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">AEB Decel</span>
+        <span class="m-val" id="telBrake">0.0 m/s&sup2;</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Active Returns</span>
+        <span class="m-val cyan" id="telPoints">4,600 pts</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Radar Doppler</span>
+        <span class="m-val" id="telDoppler">-13.9 m/s</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Floating Sensor Fusion Diagnostics -->
+  <aside class="hud-right">
+    <div class="insp-head">
+      <span class="insp-tag" id="scenTag">EURO NCAP VRU SCENARIO</span>
+      <span class="insp-hint">Drag 360&deg; &bull; Scroll</span>
+    </div>
+    <h2 id="scenTitle">Occluded Pedestrian Test</h2>
+    <p id="scenDesc">
+      A pedestrian steps out from behind the box truck. Compare how heavy fog blinds RGB Vision while 64-Ch LiDAR and 77 GHz Radar maintain lock for timely AEB braking.
+    </p>
+
+    <div class="sensor-bars">
+      <div class="s-bar-row">
+        <div class="s-bar-head"><span>RGB Vision Camera</span><strong id="barCamVal">92%</strong></div>
+        <div class="s-bar-track"><div class="s-bar-fill cam" id="barCamFill" style="width:92%"></div></div>
+      </div>
+      <div class="s-bar-row">
+        <div class="s-bar-head"><span>64-Ch 1550nm LiDAR</span><strong id="barLidarVal">96%</strong></div>
+        <div class="s-bar-track"><div class="s-bar-fill lidar" id="barLidarFill" style="width:96%"></div></div>
+      </div>
+      <div class="s-bar-row">
+        <div class="s-bar-head"><span>77 GHz mmWave Radar</span><strong id="barRadarVal">88%</strong></div>
+        <div class="s-bar-track"><div class="s-bar-fill radar" id="barRadarFill" style="width:88%"></div></div>
+      </div>
+      <div class="s-bar-row fused">
+        <div class="s-bar-head"><span>EKF Fused Track</span><strong id="barFusedVal">99%</strong></div>
+        <div class="s-bar-track"><div class="s-bar-fill fused" id="barFusedFill" style="width:99%"></div></div>
+      </div>
+    </div>
+
+    <div class="insight-box" id="insightBox">
+      Watch the dark LiDAR shadow behind the truck — perception updates the exact millisecond the pedestrian clears the edge.
+    </div>
+  </aside>
+
+  <!-- Bottom Minimalist Control Dock -->
+  <footer class="hud-dock">
+    <div class="dock-section">
+      <span class="dock-label">Test Scenario</span>
+      <div class="seg-group" id="scenarioGroup">
+        <button class="seg active" data-scen="occluded_ped">Occluded Pedestrian</button>
+        <button class="seg" data-scen="cut_in">Highway Cut-In</button>
+        <button class="seg" data-scen="highway">Free Highway</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Perception View</span>
+      <div class="seg-group" id="viewGroup">
+        <button class="seg active" data-view="fusion">Reality + AR</button>
+        <button class="seg" data-view="lidar">LiDAR Cloud</button>
+        <button class="seg" data-view="camera">Camera Raw</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <label class="slider-wrap">
+        <div class="s-head"><span>Dense Fog &amp; Weather</span><strong id="fogVal">15%</strong></div>
+        <input type="range" id="fogSlider" min="0" max="100" step="1" value="15" />
+      </label>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Active Sensor Suite</span>
+      <div class="sensor-group" id="sensorGroup">
+        <button class="s-chip active" data-sensor="camera"><span class="s-dot cam"></span>Camera</button>
+        <button class="s-chip active" data-sensor="lidar"><span class="s-dot lidar"></span>LiDAR</button>
+        <button class="s-chip active" data-sensor="radar"><span class="s-dot radar"></span>77GHz Radar</button>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="main.js"></script>
+</body>
+</html>
