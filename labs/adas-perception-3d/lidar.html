@@ -150,4 +150,76 @@
         <div class="seg-group" id="targetGroup">
           <button class="seg" data-target="sign">Sign 85%</button>
           <button class="seg active" data-target="car">Car 42%</button>
-          <button class="seg" data-target="tire">Tire 8%</
+          <button class="seg" data-target="tire">Tire 8%</button>
+        </div>
+      </div>
+
+      <div class="dock-divider"></div>
+
+      <div class="dock-section">
+        <span class="dock-label">Wave</span>
+        <div class="seg-group" id="waveGroup">
+          <button class="seg active" data-wave="1550">1550 nm</button>
+          <button class="seg" data-wave="905">905 nm</button>
+        </div>
+      </div>
+
+      <div class="dock-divider"></div>
+
+      <div class="dock-section">
+        <span class="dock-label">Inspect Component</span>
+        <div class="part-group" id="partGroup">
+          <button class="p-btn active" data-part="all">All</button>
+          <button class="p-btn" data-part="window">Dome</button>
+          <button class="p-btn" data-part="emitter">Laser</button>
+          <button class="p-btn" data-part="mirror">45&deg; Mirror</button>
+          <button class="p-btn" data-part="receiver">Lens &amp; APD</button>
+          <button class="p-btn" data-part="motor">Motor</button>
+          <button class="p-btn" data-part="fpga">FPGA</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Compact Minimize / Restore Trigger -->
+    <button class="dock-toggle-btn" id="dockToggleBtn" title="Minimize Controls" aria-label="Minimize Controls">
+      <span class="dock-toggle-label">Controls</span>
+      <span class="dock-toggle-icon">&minus;</span>
+    </button>
+  </footer>
+
+  <script type="module" src="lidar-main.js"></script>
+  <script>
+    document.querySelectorAll("[data-collapse]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const panel = document.getElementById(btn.dataset.collapse);
+        if (!panel) return;
+        const collapsed = panel.classList.toggle("collapsed");
+        btn.textContent = collapsed ? "+" : "−";
+      });
+    });
+
+    const dock = document.getElementById("panelDock");
+    const dockToggleBtn = document.getElementById("dockToggleBtn");
+    const dockIcon = dockToggleBtn.querySelector(".dock-toggle-icon");
+    dockToggleBtn.addEventListener("click", () => {
+      const collapsed = dock.classList.toggle("collapsed");
+      dockIcon.textContent = collapsed ? "+" : "−";
+      dockToggleBtn.title = collapsed ? "Expand Controls" : "Minimize Controls";
+    });
+
+    const hideUiBtn = document.getElementById("hideUiBtn");
+    function toggleAllUi() {
+      const hidden = document.body.classList.toggle("ui-hidden");
+      hideUiBtn.textContent = hidden ? "Show UI" : "Hide UI";
+      hideUiBtn.classList.toggle("active", hidden);
+    }
+    hideUiBtn.addEventListener("click", toggleAllUi);
+
+    window.addEventListener("keydown", (e) => {
+      const tag = document.activeElement?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      if (e.key === "h" || e.key === "H") toggleAllUi();
+    });
+  </script>
+</body>
+</html>
