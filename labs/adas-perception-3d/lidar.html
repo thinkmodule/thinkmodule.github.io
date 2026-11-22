@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inside the LiDAR — 3D X-Ray & Time-of-Flight Studio — Mehmet Rusen Ayvaz</title>
+  <link rel="stylesheet" href="lidar.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewport"></div>
+
+  <div id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <span>Initializing 3D Opto-Mechanical LiDAR &amp; Time-of-Flight Physics&hellip;</span>
+  </div>
+
+  <!-- Minimalist Top Navigation with Seamless Module 06 Mode Switcher -->
+  <header class="hud-top">
+    <div class="brand">
+      <span class="brand-name">Mehmet Rusen Ayvaz <span class="dot">.lab</span></span>
+      <div class="mode-switch">
+        <a href="index.html" class="mode-tab">Highway Testbench</a>
+        <span class="mode-tab active">Inside the LiDAR</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <button class="ghost-btn active" id="orbitBtn">Auto-Orbit</button>
+      <button class="ghost-btn" id="resetCamBtn">Reset View</button>
+      <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
+    </div>
+  </header>
+
+  <!-- Left Floating Time-of-Flight Telemetry -->
+  <aside class="hud-left">
+    <div class="eyebrow">Time-of-Flight (ToF) Hardware X-Ray</div>
+    <h1>Inside a 64-Ch LiDAR</h1>
+    <div class="status-chip optimal" id="detStatus">ECHO LOCKED &bull; SNR 18.4 dB</div>
+
+    <div class="formula-box">
+      <div class="f-eq">d = (c &middot; &Delta;t) / 2</div>
+      <div class="f-live" id="formulaLive">30.0 m = (0.300 m/ns &times; 200.1 ns) / 2</div>
+    </div>
+
+    <div class="metrics">
+      <div class="metric">
+        <span class="m-label">Target Range (d)</span>
+        <span class="m-val cyan" id="telDist">30.0 m</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Flight Time (&Delta;t)</span>
+        <span class="m-val" id="telTof">200.1 ns</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Return SNR</span>
+        <span class="m-val accent" id="telSnr">18.4 dB</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Reflectivity (&rho;)</span>
+        <span class="m-val" id="telRefl">42%</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Wavelength</span>
+        <span class="m-val cyan" id="telWave">1550 nm</span>
+      </div>
+      <div class="metric">
+        <span class="m-label">Azimuth (&theta;)</span>
+        <span class="m-val" id="telAz">0.0&deg;</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Floating Component Inspector + Live Picosecond Oscilloscope -->
+  <aside class="hud-right">
+    <div class="insp-head">
+      <span class="insp-tag" id="partTag">FULL OPTICAL ASSEMBLY</span>
+      <span class="insp-hint">Drag 360&deg; &bull; Scroll</span>
+    </div>
+    <h2 id="partTitle">Bistatic Time-of-Flight LiDAR</h2>
+    <p id="partDesc">
+      A laser diode fires billionth-of-a-second infrared pulses off a 45&deg; mirror onto an object.
+      By timing the returning light echo in nanoseconds, the FPGA computes exact 3D coordinates.
+    </p>
+    <div class="spec-row" id="partSpecs"></div>
+
+    <div class="scope-wrap">
+      <div class="scope-head">
+        <span>LIVE APD DETECTOR WAVEFORM</span>
+        <strong id="scopeMeta">TX &rarr; RX (&Delta;t)</strong>
+      </div>
+      <canvas id="waveformCanvas" height="108"></canvas>
+    </div>
+
+    <div class="insight-box" id="insightBox">
+      Try setting Target to <strong>8% Tire</strong> at <strong>80 m</strong> and toggle <strong>1550 nm vs. 905 nm</strong> to see why eye-safe 1550 nm sees dark objects much farther.
+    </div>
+  </aside>
+
+  <!-- Bottom Minimalist Control Dock -->
+  <footer class="hud-dock">
+    <div class="dock-section">
+      <span class="dock-label">Laser Mode</span>
+      <div class="seg-group" id="simModeGroup">
+        <button class="seg active" data-sim="tof">ToF Slow-Motion</button>
+        <button class="seg" data-sim="scan">360&deg; Live Scan</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section sliders">
+      <label class="slider-wrap">
+        <div class="s-head"><span>X-Ray Explode</span><strong id="explodeVal">45%</strong></div>
+        <input type="range" id="explodeSlider" min="0" max="100" step="1" value="45" />
+      </label>
+      <label class="slider-wrap">
+        <div class="s-head"><span>Target Distance</span><strong id="distVal">30 m</strong></div>
+        <input type="range" id="distSlider" min="5" max="120" step="1" value="30" />
+      </label>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Target Surface (&rho;)</span>
+      <div class="seg-group" id="targetGroup">
+        <button class="seg" data-target="sign">Sign 85%</button>
+        <button class="seg active" data-target="car">Car 42%</button>
+        <button class="seg" data-target="tire">Tire 8%</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Wavelength</span>
+      <div class="seg-group" id="waveGroup">
+        <button class="seg active" data-wave="1550">1550 nm</button>
+        <button class="seg" data-wave="905">905 nm</button>
+      </div>
+    </div>
+
+    <div class="dock-divider"></div>
+
+    <div class="dock-section">
+      <span class="dock-label">Inspect Component</span>
+      <div class="part-group" id="partGroup">
+        <button class="p-btn active" data-part="all">All</button>
+        <button class="p-btn" data-part="window">Dome</button>
+        <button class="p-btn" data-part="emitter">Laser</button>
+        <button class="p-btn" data-part="mirror">45&deg; Mirror</button>
+        <button class="p-btn" data-part="receiver">Lens &amp; APD</button>
+        <button class="p-btn" data-part="motor">Motor</button>
+        <button class="p-btn" data-part="fpga">FPGA/TDC</button>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="lidar-main.js"></script>
+</body>
+</html>
