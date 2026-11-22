@@ -2,17 +2,13 @@
  * ThinkModule — High-Resolution 3D Autonomous Driving & LiDAR Cinema Renderer
  * ============================================================================
  * Features:
- *  - Sculpted aerodynamic 3D vehicle geometries (ExtrudeGeometry fastback,
- *    coupe, SUV, and detailed articulated semi-truck) with recessed wheel wells,
- *    5-spoke alloy rims, glowing LED lightbars, brake lights & amber signals
- *  - Procedural PBR highway asphalt texture + tire wear tracks scrolled strictly
- *    by ego.s (100% frozen on Pause)
- *  - World-anchored streetlamps, overhead highway sign gantries, concrete Jersey
- *    barriers, twilight horizon sky dome, and soft ground contact shadows
- *  - True 3D occluded LiDAR point cloud with circular glow sprites & scan pulse
- *  - Physical 3D occlusion shadow wedges projected on the asphalt behind trucks
- *  - Full-HD Split-Screen mode (Reality | LiDAR) on a single WebGL context
- *  - Immediate 360° drag-to-orbit inspection (even while Paused!)
+ *  - Sculpted aerodynamic 3D vehicle geometries with 5-spoke alloy rims, LED
+ *    lightbars, brake lights, turn signals & soft ground contact shadows
+ *  - Procedural PBR highway asphalt, world-anchored streetlamps & sign gantries
+ *    (100% frozen on Pause)
+ *  - True 3D occluded LiDAR point cloud + dual-zone occlusion shader (solid
+ *    translucent amber on asphalt, crisp dotted fade beyond highway barriers)
+ *  - Synchronized left & right vehicle shadow cones in both 3D & BEV Mini-Map
  */
 
 import * as THREE from "three";
@@ -27,20 +23,15 @@ import {
   QUALITY_PRESETS,
 } from "./sim-engine.js";
 
-/* --------------------------------------------------------------------------
-   Procedural High-Detail Textures (Zero External Asset Dependencies)
-   -------------------------------------------------------------------------- */
 function createAsphaltTexture() {
   const c = document.createElement("canvas");
   c.width = 512;
   c.height = 512;
   const ctx = c.getContext("2d");
 
-  // Base dark mineral asphalt
   ctx.fillStyle = "#191e27";
   ctx.fillRect(0, 0, 512, 512);
 
-  // Subtle longitudinal tire wear bands in each of the 3 lanes
   const laneU = [0.22, 0.5, 0.78];
   for (const u of laneU) {
     for (const track of [-0.045, 0.045]) {
@@ -54,7 +45,6 @@ function createAsphaltTexture() {
     }
   }
 
-  // Fine asphalt mineral grain
   const img = ctx.getImageData(0, 0, 512, 512);
   const d = img.data;
   let seed = 918273;
@@ -70,7 +60,7 @@ function createAsphaltTexture() {
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(1, 40); // 560m / 40 = 14m exact tile length
+  tex.repeat.set(1, 40);
   tex.anisotropy = 8;
   return tex;
 }
@@ -129,10 +119,6 @@ function createHighwaySignTexture() {
   return tex;
 }
 
-/* --------------------------------------------------------------------------
-   Sculpted High-Resolution 3D Vehicle Builder
-   Extruded aerodynamic profiles oriented cleanly forward along -Z
-   -------------------------------------------------------------------------- */
 const sharedShadowTex = createContactShadowTexture();
 const sharedLightGlowTex = createSoftGlowSprite();
 
@@ -154,7 +140,6 @@ function createSculptedProfileGeo(points, width, bevel = 0.09) {
     curveSegments: 8,
   });
 
-  // Center depth along Z then rotateY(-PI/2) so shape X (-L/2 front .. +L/2 rear) maps to Three.js Z
   geo.translate(0, 0, -innerW * 0.5);
   geo.rotateY(-Math.PI / 2);
   geo.computeVertexNormals();
@@ -164,33 +149,19 @@ function createSculptedProfileGeo(points, width, bevel = 0.09) {
 function createWheelAssembly(radius) {
   const pivot = new THREE.Group();
 
-  const tireMat = new THREE.MeshStandardMaterial({
-    color: 0x101319,
-    roughness: 0.88,
-    metalness: 0.08,
-  });
-  const rimMat = new THREE.MeshStandardMaterial({
-    color: 0xc2ccd8,
-    roughness: 0.22,
-    metalness: 0.85,
-  });
-  const hubMat = new THREE.MeshStandardMaterial({
-    color: 0x1c232e,
-    roughness: 0.4,
-    metalness: 0.6,
-  });
+  const tireMat = new THREE.MeshStandardMaterial({ color: 0x101319, roughness: 0.88, metalness: 0.08 });
+  const rimMat = new THREE.MeshStandardMaterial({ color: 0xc2ccd8, roughness: 0.22, metalness: 0.85 });
+  const hubMat = new THREE.MeshStandardMaterial({ color: 0x1c232e, roughness: 0.4, metalness: 0.6 });
 
   const tireW = radius > 0.44 ? 0.3 : 0.25;
   const tireGeo = new THREE.CylinderGeometry(radius, radius, tireW, 24);
   tireGeo.rotateZ(Math.PI / 2);
   pivot.add(new THREE.Mesh(tireGeo, tireMat));
 
-  // Alloy barrel
   const barrelGeo = new THREE.CylinderGeometry(radius * 0.66, radius * 0.66, tireW + 0.014, 20);
   barrelGeo.rotateZ(Math.PI / 2);
   pivot.add(new THREE.Mesh(barrelGeo, hubMat));
 
-  // 5 Crisp Metallic Spokes (makes rotation & Pause-freeze unmistakably clear)
   const spokeGeo = new THREE.BoxGeometry(tireW + 0.026, radius * 1.18, 0.048);
   for (let i = 0; i < 5; i++) {
     const spoke = new THREE.Mesh(spokeGeo, rimMat);
@@ -198,7 +169,6 @@ function createWheelAssembly(radius) {
     pivot.add(spoke);
   }
 
-  // Outer rim lip ring
   const lipGeo = new THREE.TorusGeometry(radius * 0.64, 0.024, 8, 24);
   lipGeo.rotateY(Math.PI / 2);
   const lipL = new THREE.Mesh(lipGeo, rimMat);
@@ -218,18 +188,8 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     roughness: isEgo ? 0.18 : 0.26,
     metalness: isEgo ? 0.58 : 0.48,
   });
-
-  const glassMat = new THREE.MeshStandardMaterial({
-    color: 0x0b1220,
-    roughness: 0.08,
-    metalness: 0.9,
-  });
-
-  const darkTrimMat = new THREE.MeshStandardMaterial({
-    color: 0x12161e,
-    roughness: 0.72,
-    metalness: 0.2,
-  });
+  const glassMat = new THREE.MeshStandardMaterial({ color: 0x0b1220, roughness: 0.08, metalness: 0.9 });
+  const darkTrimMat = new THREE.MeshStandardMaterial({ color: 0x12161e, roughness: 0.72, metalness: 0.2 });
 
   const headMat = new THREE.MeshBasicMaterial({ color: 0xf0f7ff });
   const tailMat = new THREE.MeshBasicMaterial({ color: 0x8f1822 });
@@ -249,18 +209,12 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     wheelZs = [-4.25, -1.65, 3.3, 4.55];
     lightY = 0.95;
 
-    // Articulated Freight Trailer
     const trailerL = 8.4;
-    const trailerMat = new THREE.MeshStandardMaterial({
-      color: colorHex,
-      roughness: 0.42,
-      metalness: 0.28,
-    });
+    const trailerMat = new THREE.MeshStandardMaterial({ color: colorHex, roughness: 0.42, metalness: 0.28 });
     const trailer = new THREE.Mesh(new THREE.BoxGeometry(width, 2.55, trailerL), trailerMat);
     trailer.position.set(0, 1.02 + 1.275, 1.48);
     group.add(trailer);
 
-    // Subtle metallic side ribs on trailer
     const ribGeo = new THREE.BoxGeometry(width + 0.04, 2.48, 0.06);
     const ribMat = new THREE.MeshStandardMaterial({ color: 0x8e99a8, roughness: 0.4, metalness: 0.5 });
     for (let z = -2.2; z <= 5.2; z += 1.45) {
@@ -269,31 +223,22 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
       group.add(rib);
     }
 
-    // Underride chassis & side skirts
     const skirt = new THREE.Mesh(new THREE.BoxGeometry(width * 0.92, 0.54, trailerL * 0.92), darkTrimMat);
     skirt.position.set(0, 0.72, 1.48);
     group.add(skirt);
 
-    // Sculpted Tractor Cab + Aerodynamic Roof Fairing
     const cabProfile = [
-      [-5.65, 0.52],
-      [-5.65, 1.65],
-      [-5.35, 2.68],
-      [-4.6, 3.45],
-      [-2.95, 3.45],
-      [-2.95, 0.52],
+      [-5.65, 0.52], [-5.65, 1.65], [-5.35, 2.68],
+      [-4.6, 3.45], [-2.95, 3.45], [-2.95, 0.52],
     ];
     const cabMat = new THREE.MeshStandardMaterial({ color: 0x2c3645, roughness: 0.3, metalness: 0.55 });
-    const cab = new THREE.Mesh(createSculptedProfileGeo(cabProfile, width * 0.94, 0.1), cabMat);
-    group.add(cab);
+    group.add(new THREE.Mesh(createSculptedProfileGeo(cabProfile, width * 0.94, 0.1), cabMat));
 
-    // Cab Windshield & Side Glass
     const cabGlass = new THREE.Mesh(new THREE.BoxGeometry(width * 0.84, 0.86, 0.12), glassMat);
     cabGlass.position.set(0, 2.15, -5.45);
     cabGlass.rotation.x = 0.24;
     group.add(cabGlass);
 
-    // Chrome Grille Slats
     const grille = new THREE.Mesh(
       new THREE.BoxGeometry(1.5, 0.78, 0.06),
       new THREE.MeshStandardMaterial({ color: 0x9aa6b8, roughness: 0.25, metalness: 0.85 })
@@ -301,7 +246,6 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     grille.position.set(0, 1.15, -5.66);
     group.add(grille);
   } else {
-    // Sculpted Coupe / Executive Sedan / Premium SUV
     if (type === "coupe") {
       length = 4.65;
       width = 1.9;
@@ -313,12 +257,9 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
         [-2.3, 0.28], [-2.22, 0.64], [-1.35, 0.82], [1.45, 0.86],
         [2.26, 0.82], [2.32, 0.52], [2.18, 0.28],
       ];
-      const cabinPts = [
-        [-1.12, 0.78], [-0.32, 1.35], [0.85, 1.33], [1.78, 0.82],
-      ];
+      const cabinPts = [[-1.12, 0.78], [-0.32, 1.35], [0.85, 1.33], [1.78, 0.82]];
       group.add(new THREE.Mesh(createSculptedProfileGeo(lowerPts, width, 0.1), bodyMat));
       group.add(new THREE.Mesh(createSculptedProfileGeo(cabinPts, width * 0.8, 0.08), glassMat));
-      // Roof cap
       const roof = new THREE.Mesh(new THREE.BoxGeometry(width * 0.74, 0.06, 1.15), bodyMat);
       roof.position.set(0, 1.36, 0.24);
       group.add(roof);
@@ -333,16 +274,13 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
         [-2.48, 0.34], [-2.42, 0.86], [-1.38, 1.04], [2.38, 1.06],
         [2.48, 0.68], [2.36, 0.34],
       ];
-      const cabinPts = [
-        [-1.24, 1.0], [-0.56, 1.72], [1.62, 1.71], [2.18, 1.04],
-      ];
+      const cabinPts = [[-1.24, 1.0], [-0.56, 1.72], [1.62, 1.71], [2.18, 1.04]];
       group.add(new THREE.Mesh(createSculptedProfileGeo(lowerPts, width, 0.11), bodyMat));
       group.add(new THREE.Mesh(createSculptedProfileGeo(cabinPts, width * 0.84, 0.08), glassMat));
       const roof = new THREE.Mesh(new THREE.BoxGeometry(width * 0.78, 0.07, 2.1), bodyMat);
       roof.position.set(0, 1.73, 0.52);
       group.add(roof);
     } else {
-      // Sleek Executive Fastback Sedan (including Ego Flagship)
       length = isEgo ? 4.86 : 4.85;
       width = isEgo ? 1.94 : 1.92;
       wheelR = isEgo ? 0.36 : 0.35;
@@ -353,9 +291,7 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
         [-2.42, 0.28], [-2.34, 0.68], [-1.35, 0.87], [1.62, 0.9],
         [2.38, 0.84], [2.42, 0.48], [2.26, 0.28],
       ];
-      const cabinPts = [
-        [-1.16, 0.82], [-0.36, 1.42], [0.96, 1.4], [1.92, 0.86],
-      ];
+      const cabinPts = [[-1.16, 0.82], [-0.36, 1.42], [0.96, 1.4], [1.92, 0.86]];
       group.add(new THREE.Mesh(createSculptedProfileGeo(lowerPts, width, 0.1), bodyMat));
       group.add(new THREE.Mesh(createSculptedProfileGeo(cabinPts, width * 0.82, 0.08), glassMat));
       const roof = new THREE.Mesh(new THREE.BoxGeometry(width * 0.76, 0.06, 1.32), bodyMat);
@@ -363,12 +299,10 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
       group.add(roof);
     }
 
-    // Lower Aero Diffuser / Sill Trim
     const sill = new THREE.Mesh(new THREE.BoxGeometry(width * 0.96, 0.13, length * 0.92), darkTrimMat);
     sill.position.set(0, 0.28, 0);
     group.add(sill);
 
-    // Side Mirrors
     const mirGeo = new THREE.BoxGeometry(0.18, 0.09, 0.14);
     const mirL = new THREE.Mesh(mirGeo, bodyMat);
     mirL.position.set(-width * 0.52, lightY + 0.34, -0.58);
@@ -377,7 +311,6 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     group.add(mirL, mirR);
   }
 
-  // Modern Full-Width Signature LED Lightbars (Front & Rear)
   const frontZ = -length * 0.5 - 0.01;
   const rearZ = length * 0.5 + 0.01;
 
@@ -396,18 +329,15 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     tlR.position.x = width * 0.36;
     group.add(tlL, tlR);
   } else {
-    // Sleek full-width LED DRL + headlights
     const frontBar = new THREE.Mesh(new THREE.BoxGeometry(width * 0.84, 0.075, 0.05), headMat);
     frontBar.position.set(0, lightY, frontZ);
     group.add(frontBar);
 
-    // Full-width sculpted rear LED taillight bar
     const rearBar = new THREE.Mesh(new THREE.BoxGeometry(width * 0.86, 0.085, 0.06), tailMat);
     rearBar.position.set(0, lightY + 0.06, rearZ);
     group.add(rearBar);
   }
 
-  // Turn Signal LEDs (Left & Right Rear Corners)
   const tsGeo = new THREE.BoxGeometry(0.18, 0.09, 0.07);
   const tsL = new THREE.Mesh(tsGeo, turnLeftMat);
   tsL.position.set(-width * 0.43, lightY + 0.06, rearZ + 0.01);
@@ -415,21 +345,14 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
   tsR.position.set(width * 0.43, lightY + 0.06, rearZ + 0.01);
   group.add(tsL, tsR);
 
-  // Soft Ground Contact Shadow (Anchors vehicles visually to the asphalt!)
   const shadowPlane = new THREE.Mesh(
     new THREE.PlaneGeometry(width * 1.42, length * 1.18),
-    new THREE.MeshBasicMaterial({
-      map: sharedShadowTex,
-      transparent: true,
-      opacity: 0.78,
-      depthWrite: false,
-    })
+    new THREE.MeshBasicMaterial({ map: sharedShadowTex, transparent: true, opacity: 0.78, depthWrite: false })
   );
   shadowPlane.rotation.x = -Math.PI / 2;
   shadowPlane.position.y = 0.018;
   group.add(shadowPlane);
 
-  // Wheels + Dark Wheel Arch Wells
   const wheels = [];
   const archMat = new THREE.MeshBasicMaterial({ color: 0x06080c });
   const archGeo = new THREE.CylinderGeometry(wheelR * 1.12, wheelR * 1.12, 0.3, 18);
@@ -449,10 +372,8 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     }
   }
 
-  // Ego Autonomous Roof Sensor Pod + Spinning 360° LiDAR Dome + Soft Headlight Cones
   let lidarSpinner = null;
   if (isEgo) {
-    // Aerodynamic roof sensor bridge
     const pod = new THREE.Mesh(
       new THREE.BoxGeometry(0.92, 0.14, 0.62),
       new THREE.MeshStandardMaterial({ color: 0x151b26, roughness: 0.25, metalness: 0.75 })
@@ -460,7 +381,6 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     pod.position.set(0, 1.5, 0.1);
     group.add(pod);
 
-    // Side corner sensor pods
     for (const side of [-1, 1]) {
       const camPod = new THREE.Mesh(
         new THREE.SphereGeometry(0.065, 12, 12),
@@ -470,10 +390,8 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
       group.add(camPod);
     }
 
-    // Main Spinning 360° LiDAR Dome
     lidarSpinner = new THREE.Group();
     lidarSpinner.position.set(0, LIDAR_MOUNT_HEIGHT - 0.05, 0.08);
-
     const housing = new THREE.Mesh(
       new THREE.CylinderGeometry(0.145, 0.165, 0.18, 28),
       new THREE.MeshStandardMaterial({ color: 0x18202c, roughness: 0.22, metalness: 0.85 })
@@ -490,7 +408,6 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     lidarSpinner.add(housing, opticRing, laserEmitter);
     group.add(lidarSpinner);
 
-    // Subtle Headlight Ground Cones on Asphalt
     const beamGeo = new THREE.PlaneGeometry(3.8, 26);
     beamGeo.rotateX(-Math.PI / 2);
     const beamMat = new THREE.MeshBasicMaterial({
@@ -506,20 +423,11 @@ function createSculptedVehicle(type, colorHex, isEgo = false) {
     group.add(beam);
   }
 
-  return {
-    group,
-    wheels,
-    lidarSpinner,
-    bodyMat,
-    tailMat,
-    turnLeftMat,
-    turnRightMat,
-    type,
-  };
+  return { group, wheels, lidarSpinner, bodyMat, tailMat, turnLeftMat, turnRightMat, type };
 }
 
 /* ============================================================================
-   MAIN CINEMA 3D RENDERER (Supports Studio+AR, LiDAR Cloud, Fusion & HD Split)
+   MAIN CINEMA 3D RENDERER
    ============================================================================ */
 export class Cinema3DRenderer {
   constructor(canvas, labelsLayer, onUserOrbitStart) {
@@ -527,11 +435,7 @@ export class Cinema3DRenderer {
     this.labelsLayer = labelsLayer;
     this.onUserOrbitStart = onUserOrbitStart;
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: true,
-      powerPreference: "high-performance",
-    });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setClearColor(0x060a12, 1);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.24;
@@ -551,7 +455,6 @@ export class Cinema3DRenderer {
     this.controls.maxDistance = 125;
     this.controls.target.set(0, 1.0, -14);
 
-    // Drag anywhere -> immediately switches cleanly into 360° Free Orbit without fighting the user!
     this.controls.addEventListener("start", () => {
       if (this.camMode !== "orbit") {
         this.camMode = "orbit";
@@ -560,18 +463,18 @@ export class Cinema3DRenderer {
     });
 
     this.camMode = "cinematic";
-    this.visualMode = "cinema_ar"; // cinema_ar | lidar_cloud | sensor_fusion | split_compare
+    this.visualMode = "cinema_ar";
     this._camTargetPos = new THREE.Vector3();
     this._camTargetLook = new THREE.Vector3();
     this._maxDpr = 1.75;
     this._projVec = new THREE.Vector3();
 
-    // Scene Layer Groups for clean mode & HD Split-Screen toggling
     this.envGroup = new THREE.Group();
     this.lidarGroup = new THREE.Group();
     this.arGroup = new THREE.Group();
     this.fusionGroup = new THREE.Group();
-    this.scene.add(this.envGroup, this.lidarGroup, this.arGroup, this.fusionGroup);
+    this.occlusionGroup = new THREE.Group();
+    this.scene.add(this.envGroup, this.lidarGroup, this.arGroup, this.fusionGroup, this.occlusionGroup);
 
     this._buildSkyAndLighting();
     this._buildHighwayEnvironment();
@@ -583,7 +486,6 @@ export class Cinema3DRenderer {
   }
 
   _buildSkyAndLighting() {
-    // Twilight atmospheric gradient sky dome
     const skyCanvas = document.createElement("canvas");
     skyCanvas.width = 4;
     skyCanvas.height = 256;
@@ -605,7 +507,6 @@ export class Cinema3DRenderer {
     );
     this.envGroup.add(skyDome);
 
-    // Three-Point Automotive Studio Lighting
     this.scene.add(new THREE.HemisphereLight(0xbcd4f2, 0x161c28, 1.15));
 
     const keyLight = new THREE.DirectionalLight(0xf3f7ff, 1.65);
@@ -622,7 +523,6 @@ export class Cinema3DRenderer {
   }
 
   _buildHighwayEnvironment() {
-    // Surrounding twilight terrain
     const terrain = new THREE.Mesh(
       new THREE.PlaneGeometry(520, 560),
       new THREE.MeshStandardMaterial({ color: 0x090d14, roughness: 0.96 })
@@ -631,22 +531,16 @@ export class Cinema3DRenderer {
     terrain.position.y = -0.05;
     this.envGroup.add(terrain);
 
-    // Procedural PBR Asphalt Road Deck
     this.asphaltTex = createAsphaltTexture();
     const roadW = ROAD_HALF_WIDTH * 2;
     const road = new THREE.Mesh(
       new THREE.PlaneGeometry(roadW, 560),
-      new THREE.MeshStandardMaterial({
-        map: this.asphaltTex,
-        roughness: 0.82,
-        metalness: 0.08,
-      })
+      new THREE.MeshStandardMaterial({ map: this.asphaltTex, roughness: 0.82, metalness: 0.08 })
     );
     road.rotation.x = -Math.PI / 2;
     road.position.y = 0;
     this.envGroup.add(road);
 
-    // Crisp Solid Shoulder Edge Lines
     const edgeMat = new THREE.MeshBasicMaterial({ color: 0xa6b2c2 });
     for (const side of [-1, 1]) {
       const edge = new THREE.Mesh(new THREE.PlaneGeometry(0.18, 560), edgeMat);
@@ -655,7 +549,6 @@ export class Cinema3DRenderer {
       this.envGroup.add(edge);
     }
 
-    // World-Anchored Dashed Lane Dividers (scrolled strictly via ego.s)
     this.dashCycle = 12.0;
     this.dashGroup = new THREE.Group();
     const dashGeo = new THREE.PlaneGeometry(0.16, 4.2);
@@ -670,7 +563,6 @@ export class Cinema3DRenderer {
     }
     this.envGroup.add(this.dashGroup);
 
-    // Sculpted Concrete Jersey Barriers + Steel Top Guardrail
     const concreteMat = new THREE.MeshStandardMaterial({ color: 0x2a323e, roughness: 0.85, metalness: 0.1 });
     const steelMat = new THREE.MeshStandardMaterial({ color: 0x586578, roughness: 0.4, metalness: 0.72 });
     for (const side of [-1, 1]) {
@@ -685,7 +577,6 @@ export class Cinema3DRenderer {
   }
 
   _buildStreetlampsAndGantries() {
-    // 1. Modern Highway Streetlamps (World-Anchored via ego.s)
     this.lampPairs = [];
     const poleMat = new THREE.MeshStandardMaterial({ color: 0x3b4556, roughness: 0.45, metalness: 0.65 });
     const lumMat = new THREE.MeshBasicMaterial({ color: 0xeef5ff });
@@ -740,7 +631,6 @@ export class Cinema3DRenderer {
       this.lampPairs.push(pair);
     }
 
-    // 2. Overhead Highway Sign Gantries (adds realistic depth & motion cues, frozen on Pause!)
     this.gantries = [];
     const signTex = createHighwaySignTexture();
     const trussMat = new THREE.MeshStandardMaterial({ color: 0x384252, roughness: 0.45, metalness: 0.7 });
@@ -779,7 +669,6 @@ export class Cinema3DRenderer {
     this.egoVisual = createSculptedVehicle("sedan", 0xe6edf6, true);
     this.envGroup.add(this.egoVisual.group);
 
-    // Wireframe Ego silhouette visible in Pure LiDAR Cloud mode
     this.egoWireframe = new THREE.LineSegments(
       new THREE.EdgesGeometry(new THREE.BoxGeometry(1.94, 1.44, 4.86)),
       new THREE.LineBasicMaterial({ color: 0xe2e8f0, transparent: true, opacity: 0.78 })
@@ -787,7 +676,6 @@ export class Cinema3DRenderer {
     this.egoWireframe.position.set(0, 0.72, 0);
     this.lidarGroup.add(this.egoWireframe);
 
-    // Pre-built reusable pool for all 14 traffic slots (zero runtime allocation)
     this.poolSlots = [];
     for (let i = 0; i < 14; i++) {
       const container = new THREE.Group();
@@ -828,7 +716,6 @@ export class Cinema3DRenderer {
     this.pointCloud = new THREE.Points(geo, this.pcMat);
     this.lidarGroup.add(this.pointCloud);
 
-    // Concentric Metric Range Rings (visible in LiDAR Cloud & Sensor Fusion)
     this.rangeRings = new THREE.Group();
     const ringMat = new THREE.MeshBasicMaterial({
       color: 0x38bdf8,
@@ -845,7 +732,6 @@ export class Cinema3DRenderer {
     }
     this.lidarGroup.add(this.rangeRings);
 
-    // Expanding LiDAR Scan Pulse Ring (strictly synced to state.lidar.pulseRadius!)
     this.pulseRing = new THREE.Mesh(
       new THREE.RingGeometry(0.96, 1.0, 72),
       new THREE.MeshBasicMaterial({
@@ -863,7 +749,7 @@ export class Cinema3DRenderer {
   }
 
   _buildARAndFusionOverlays() {
-    // 1. Sleek 3D Tracking Bounding Boxes (Pooled)
+    // 1. 3D Tracking Bounding Boxes
     this.boxPool = [];
     const unitEdges = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
     for (let i = 0; i < 14; i++) {
@@ -876,16 +762,13 @@ export class Cinema3DRenderer {
       this.boxPool.push(box);
     }
 
-    // 2. Smooth Glowing Planned Path Corridor Ribbon Ahead of Ego
+    // 2. Planned Path Corridor Ribbon
     const segs = 16;
     const pathPos = new Float32Array((segs + 1) * 2 * 3);
     const indices = [];
     for (let i = 0; i < segs; i++) {
       const a = i * 2;
-      const b = a + 1;
-      const c = a + 2;
-      const d = a + 3;
-      indices.push(a, b, c, b, d, c);
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
     }
     const pathGeo = new THREE.BufferGeometry();
     pathGeo.setAttribute("position", new THREE.BufferAttribute(pathPos, 3));
@@ -900,7 +783,6 @@ export class Cinema3DRenderer {
     this.pathRibbon = new THREE.Mesh(pathGeo, this.pathMat);
     this.arGroup.add(this.pathRibbon);
 
-    // Crisp corridor edge lines
     const edgePosL = new Float32Array((segs + 1) * 3);
     const edgePosR = new Float32Array((segs + 1) * 3);
     const lGeo = new THREE.BufferGeometry();
@@ -935,24 +817,56 @@ export class Cinema3DRenderer {
     this.radarCone.position.y = 0.05;
     this.fusionGroup.add(this.radarCone);
 
-    // 4. Physical 3D Geometric Occlusion Shadow Wedges on Asphalt (Pooled)
+    // 4. Dual-Zone 3D LiDAR Occlusion Shader:
+    //    Solid translucent amber on asphalt (|x| <= barrier), crisp dotted fade outside barriers
+    this.occlusionMat = new THREE.ShaderMaterial({
+      transparent: true,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      uniforms: {
+        uColor: { value: new THREE.Color(0xf59e0b) },
+        uRoadHalfWidth: { value: ROAD_HALF_WIDTH },
+        uOpacity: { value: 0.2 },
+      },
+      vertexShader: `
+        varying vec3 vPos;
+        void main() {
+          vPos = position;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: `
+        uniform vec3 uColor;
+        uniform float uRoadHalfWidth;
+        uniform float uOpacity;
+        varying vec3 vPos;
+        void main() {
+          float dist = length(vPos.xz);
+          float distFade = smoothstep(94.0, 8.0, dist);
+          float absX = abs(vPos.x);
+
+          if (absX <= uRoadHalfWidth) {
+            gl_FragColor = vec4(uColor, uOpacity * distFade);
+          } else {
+            vec2 cell = fract(vPos.xz * 0.82) - 0.5;
+            float dotMask = 1.0 - smoothstep(0.15, 0.23, length(cell));
+            float outerFade = smoothstep(uRoadHalfWidth + 34.0, uRoadHalfWidth + 0.5, absX);
+            float alpha = uOpacity * 1.35 * dotMask * distFade * outerFade;
+            if (alpha < 0.01) discard;
+            gl_FragColor = vec4(uColor, alpha);
+          }
+        }
+      `,
+    });
+
     this.occlusionWedges = [];
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 12; i++) {
       const wGeo = new THREE.BufferGeometry();
       wGeo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
       wGeo.setIndex([0, 1, 2, 0, 2, 3]);
-      const wedge = new THREE.Mesh(
-        wGeo,
-        new THREE.MeshBasicMaterial({
-          color: 0xf59e0b,
-          transparent: true,
-          opacity: 0.2,
-          side: THREE.DoubleSide,
-          depthWrite: false,
-        })
-      );
+      const wedge = new THREE.Mesh(wGeo, this.occlusionMat);
       wedge.visible = false;
-      this.fusionGroup.add(wedge);
+      this.occlusionGroup.add(wedge);
       this.occlusionWedges.push(wedge);
     }
   }
@@ -1004,7 +918,7 @@ export class Cinema3DRenderer {
     const ego = state.ego;
     const simTime = state.clock.simTime;
 
-    // 1. World-Anchored Road Texture, Dashes, Lamps & Gantries (100% Frozen on Pause!)
+    // 1. World-Anchored Road Texture, Dashes, Lamps & Gantries (100% Frozen on Pause)
     this.asphaltTex.offset.y = (ego.s / 14.0) % 1;
     this.dashGroup.position.z = ego.s % this.dashCycle;
 
@@ -1083,7 +997,6 @@ export class Cinema3DRenderer {
       const objId = srcObj[i];
       const t = Math.min(1, srcDist[i] / LIDAR_MAX_RANGE);
       if (objId >= 0) {
-        // High-contrast cyan-to-emerald vehicle return contours
         this.pcColArr[i3] = 0.22 + (1 - t) * 0.25;
         this.pcColArr[i3 + 1] = 0.94 - t * 0.26;
         this.pcColArr[i3 + 2] = 1.0 - t * 0.14;
@@ -1092,7 +1005,6 @@ export class Cinema3DRenderer {
         this.pcColArr[i3 + 1] = 0.45;
         this.pcColArr[i3 + 2] = 0.6;
       } else {
-        // Road surface scan rings
         this.pcColArr[i3] = 0.1 + (1 - t) * 0.12;
         this.pcColArr[i3 + 1] = 0.28 + (1 - t) * 0.2;
         this.pcColArr[i3 + 2] = 0.44 + (1 - t) * 0.24;
@@ -1155,26 +1067,11 @@ export class Cinema3DRenderer {
       this.pathEdgeMat.color.setHex(corridorCol);
     }
 
-    // 8. Real Geometric 3D Occlusion Shadow Wedges behind Vehicles (clipped cleanly to highway barriers)
-    const showShadows =
-      this.visualMode === "sensor_fusion" || state.scenario.id === "truck_occlusion";
+    // 8. Dual-Zone Geometric Occlusion Shadows for ALL Tracked Vehicles (Left & Right)
     let wedgeIdx = 0;
-    const clipRayToRoad = (angle, minDist, maxDist) => {
-      const dirX = Math.cos(angle);
-      let tEdge = maxDist;
-      if (dirX < -1e-4) {
-        tEdge = (-ROAD_HALF_WIDTH - ego.x) / dirX;
-      } else if (dirX > 1e-4) {
-        tEdge = (ROAD_HALF_WIDTH - ego.x) / dirX;
-      }
-      return Math.max(minDist, Math.min(maxDist, tEdge));
-    };
-
     for (const trk of state.tracks) {
-      if (!showShadows || wedgeIdx >= this.occlusionWedges.length) break;
-      if (trk.status === "OCCLUDED" || trk.relS < 4 || trk.distance > 75) continue;
-      // In Studio+AR / Split only highlight the heavy truck occluder; show all vehicles in Sensor Fusion
-      if (this.visualMode !== "sensor_fusion" && trk.type !== "truck") {
+      if (wedgeIdx >= this.occlusionWedges.length) break;
+      if (trk.status === "OCCLUDED" || trk.distance < 3.0 || trk.distance > 78 || trk.relS < -12) {
         continue;
       }
 
@@ -1195,18 +1092,17 @@ export class Cinema3DRenderer {
         if (a < minA) { minA = a; cMin = c; }
         if (a > maxA) { maxA = a; cMax = c; }
       }
-      const farDist = 90;
+      if (maxA - minA > Math.PI * 0.85) continue;
+
+      const farDist = 92;
       const a1 = baseA + minA;
       const a2 = baseA + maxA;
-      const d1 = clipRayToRoad(a1, Math.hypot(cMin.x - ego.x, cMin.z), farDist);
-      const d2 = clipRayToRoad(a2, Math.hypot(cMax.x - ego.x, cMax.z), farDist);
-
       const wMesh = this.occlusionWedges[wedgeIdx++];
       wMesh.visible = true;
       const pos = wMesh.geometry.attributes.position;
       pos.setXYZ(0, cMin.x, 0.04, cMin.z);
-      pos.setXYZ(1, ego.x + Math.cos(a1) * d1, 0.04, Math.sin(a1) * d1);
-      pos.setXYZ(2, ego.x + Math.cos(a2) * d2, 0.04, Math.sin(a2) * d2);
+      pos.setXYZ(1, ego.x + Math.cos(a1) * farDist, 0.04, Math.sin(a1) * farDist);
+      pos.setXYZ(2, ego.x + Math.cos(a2) * farDist, 0.04, Math.sin(a2) * farDist);
       pos.setXYZ(3, cMax.x, 0.04, cMax.z);
       pos.needsUpdate = true;
     }
@@ -1223,7 +1119,6 @@ export class Cinema3DRenderer {
 
     const ego = state.ego;
     const intro = state.clock.introProgress;
-    // Calm establishing swoop during first 1.6s
     const easeIntro = 1 - Math.pow(1 - intro, 3);
 
     if (this.camMode === "cinematic") {
@@ -1274,7 +1169,6 @@ export class Cinema3DRenderer {
       this._projVec.set(trk.bbox.cx, trk.bbox.h + 0.55, trk.bbox.cz);
       this._projVec.project(this.camera);
 
-      // Clip behind camera or outside active viewport
       if (this._projVec.z > 1 || this._projVec.x < -0.96 || this._projVec.x > 0.96 || this._projVec.y < -0.9 || this._projVec.y > 0.88) {
         item.el.classList.add("hidden");
         continue;
@@ -1310,7 +1204,7 @@ export class Cinema3DRenderer {
       const halfW = Math.floor(w * 0.5);
       this.renderer.setScissorTest(true);
 
-      // Left Half: High-Resolution 3D Reality + AR Corridor
+      // Left Half: 3D Reality + AR + Dual-Zone Occlusion Shadows
       this.camera.aspect = halfW / h;
       this.camera.updateProjectionMatrix();
       this.renderer.setViewport(0, 0, halfW, h);
@@ -1320,8 +1214,9 @@ export class Cinema3DRenderer {
       this.envGroup.visible = true;
       this.lidarGroup.visible = false;
       this.arGroup.visible = true;
-      this.fusionGroup.visible = state.scenario.id === "truck_occlusion";
-      this.radarCone.visible = false;
+      this.fusionGroup.visible = false;
+      this.occlusionGroup.visible = true;
+      this.occlusionMat.uniforms.uOpacity.value = 0.2;
       this.renderer.render(this.scene, this.camera);
       this._projectLabels(state, halfW, 0);
 
@@ -1338,6 +1233,7 @@ export class Cinema3DRenderer {
       this.rangeRings.visible = true;
       this.arGroup.visible = true;
       this.fusionGroup.visible = false;
+      this.occlusionGroup.visible = false;
       this.pcMat.size = 0.42;
       this.renderer.render(this.scene, this.camera);
 
@@ -1345,7 +1241,6 @@ export class Cinema3DRenderer {
       return;
     }
 
-    // Full-Screen Single High-Resolution Render
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
     this.renderer.setViewport(0, 0, w, h);
@@ -1359,6 +1254,7 @@ export class Cinema3DRenderer {
       this.rangeRings.visible = true;
       this.arGroup.visible = true;
       this.fusionGroup.visible = false;
+      this.occlusionGroup.visible = false;
       this.pcMat.size = 0.44;
     } else if (this.visualMode === "sensor_fusion") {
       this.renderer.setClearColor(0x050810, 1);
@@ -1370,9 +1266,11 @@ export class Cinema3DRenderer {
       this.arGroup.visible = true;
       this.fusionGroup.visible = true;
       this.radarCone.visible = true;
+      this.occlusionGroup.visible = true;
+      this.occlusionMat.uniforms.uOpacity.value = 0.25;
       this.pcMat.size = 0.34;
     } else {
-      // Default: 3D Studio + AR (Ultra-clean highway cinema + subtle crisp LiDAR returns)
+      // 3D Studio + AR
       this.renderer.setClearColor(0x060a12, 1);
       this.scene.fog.density = 0.0036;
       this.envGroup.visible = true;
@@ -1380,8 +1278,10 @@ export class Cinema3DRenderer {
       this.egoWireframe.visible = false;
       this.rangeRings.visible = false;
       this.arGroup.visible = true;
-      this.fusionGroup.visible = state.scenario.id === "truck_occlusion";
-      this.radarCone.visible = false;
+      this.fusionGroup.visible = false;
+      this.occlusionGroup.visible = true;
+      this.occlusionMat.uniforms.uOpacity.value =
+        state.scenario.id === "truck_occlusion" ? 0.24 : 0.16;
       this.pcMat.size = 0.26;
     }
 
@@ -1427,13 +1327,11 @@ export class BEVRadarRenderer {
     const toX = (x) => originX + x * pxPerM * 1.45;
     const toY = (relS) => egoY - relS * pxPerM;
 
-    // Road Deck
     const roadL = toX(-ROAD_HALF_WIDTH);
     const roadR = toX(ROAD_HALF_WIDTH);
     ctx.fillStyle = "#0d121d";
     ctx.fillRect(roadL, 0, roadR - roadL, h);
 
-    // World-Anchored Dashed Lane Lines (Frozen on Pause!)
     ctx.save();
     ctx.strokeStyle = "rgba(148, 163, 184, 0.25)";
     ctx.lineWidth = 1;
@@ -1447,7 +1345,6 @@ export class BEVRadarRenderer {
     }
     ctx.restore();
 
-    // Range Rings
     ctx.strokeStyle = "rgba(56, 189, 248, 0.14)";
     for (const r of [25, 50, 75]) {
       ctx.beginPath();
@@ -1455,11 +1352,13 @@ export class BEVRadarRenderer {
       ctx.stroke();
     }
 
-    // Occlusion Shadow Cones
+    // Dual-Zone Occlusion Shadow Cones for ALL tracked vehicles (Left & Right)
     const ox = toX(state.ego.x);
     const oy = egoY;
     for (const trk of state.tracks) {
-      if (trk.status === "OCCLUDED" || trk.type !== "truck") continue;
+      if (trk.status === "OCCLUDED" || trk.distance < 3.0 || trk.distance > 78 || trk.relS < -12) {
+        continue;
+      }
       const hw = trk.bbox.w * 0.5;
       const hl = trk.bbox.l * 0.5;
       const corners = [
@@ -1477,15 +1376,44 @@ export class BEVRadarRenderer {
         if (a < minA) { minA = a; cMin = c; }
         if (a > maxA) { maxA = a; cMax = c; }
       }
-      const far = 130;
-      ctx.fillStyle = "rgba(245, 158, 11, 0.16)";
+      if (maxA - minA > Math.PI * 0.85) continue;
+
+      const far = 135;
+      const p1x = ox + Math.cos(baseA + minA) * far;
+      const p1y = oy + Math.sin(baseA + minA) * far;
+      const p2x = ox + Math.cos(baseA + maxA) * far;
+      const p2y = oy + Math.sin(baseA + maxA) * far;
+
+      // Subtle dashed outline extending beyond highway
+      ctx.save();
+      ctx.fillStyle = "rgba(245, 158, 11, 0.06)";
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.24)";
+      ctx.lineWidth = 0.8;
+      ctx.setLineDash([2, 3]);
       ctx.beginPath();
       ctx.moveTo(cMin.x, cMin.y);
-      ctx.lineTo(ox + Math.cos(baseA + minA) * far, oy + Math.sin(baseA + minA) * far);
-      ctx.lineTo(ox + Math.cos(baseA + maxA) * far, oy + Math.sin(baseA + maxA) * far);
+      ctx.lineTo(p1x, p1y);
+      ctx.lineTo(p2x, p2y);
       ctx.lineTo(cMax.x, cMax.y);
       ctx.closePath();
       ctx.fill();
+      ctx.stroke();
+      ctx.restore();
+
+      // Solid amber shadow clipped cleanly onto the highway deck
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(roadL, 0, roadR - roadL, h);
+      ctx.clip();
+      ctx.fillStyle = "rgba(245, 158, 11, 0.19)";
+      ctx.beginPath();
+      ctx.moveTo(cMin.x, cMin.y);
+      ctx.lineTo(p1x, p1y);
+      ctx.lineTo(p2x, p2y);
+      ctx.lineTo(cMax.x, cMax.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
 
     // Tracked Vehicles

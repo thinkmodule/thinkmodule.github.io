@@ -579,8 +579,8 @@ export class SimulationEngine {
       this._acquireVehicle({
         type: "truck",
         laneIndex: 2,
-        relS: 72,
-        speed: 78 / 3.6,
+        relS: 118,
+        speed: 86 / 3.6,
         scripted: true,
         scriptRole: "cutin_truck",
         colorHex: 0xc4cdd8,
@@ -970,6 +970,7 @@ export class SimulationEngine {
 
       const isHardBrakingLead = v.scriptRole === "aeb_lead_suv" && t >= 6.8 && t < 17.5;
       if (!isHardBrakingLead) {
+        const isPreCutIn = v.scriptRole === "cutin_coupe" && t < 7.4 && aheadGap > 18;
         const desiredGap = 9.0 + v.speed * 1.45;
         let accel = Math.max(-2.6, Math.min(2.2, (v.targetSpeed - v.speed) * 0.75));
         if (aheadGap < desiredGap * 1.4) {
