@@ -3,157 +3,399 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D Autonomous Driving, LiDAR & Sensor Fusion Studio — ThinkModule</title>
+  <title>Autonomous Driving &amp; LiDAR Multi-View Workbench — ThinkModule</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <meta name="description" content="Synchronized multi-view autonomous driving and occluded 3D LiDAR engineering simulation built on a deterministic fixed-timestep engine." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <script type="importmap">
     {
       "imports": {
-        "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
       }
     }
   </script>
 </head>
 <body>
-  <div id="viewport"></div>
+  <div class="app-shell">
+    <!-- Top Architectural Navigation Bar -->
+    <header class="topbar">
+      <div class="topbar-left">
+        <a href="../../index.html" class="brand" title="Return to ThinkModule Portfolio">
+          <span class="brand-mark" aria-hidden="true">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+              <rect x="1.2" y="1.2" width="4" height="4" rx="0.8" fill="#f3f5f8"/>
+              <rect x="6.8" y="1.2" width="4" height="4" rx="0.8" stroke="#98a0ad" stroke-width="1.1"/>
+              <rect x="1.2" y="6.8" width="4" height="4" rx="0.8" stroke="#98a0ad" stroke-width="1.1"/>
+              <rect x="6.8" y="6.8" width="4" height="4" rx="0.8" fill="#f3f5f8" fill-opacity="0.45"/>
+            </svg>
+          </span>
+          <span class="brand-text">Think<span class="brand-muted">Module</span></span>
+        </a>
 
-  <div id="loadingOverlay">
-    <div class="loader-ring"></div>
-    <span>Initializing WebGL PBR Highway, 64-Channel LiDAR &amp; EKF Sensor Fusion&hellip;</span>
+        <div class="mode-tabs" role="tablist" aria-label="Module Views">
+          <span class="mode-tab active" role="tab" aria-selected="true">Multi-View Testbench</span>
+          <a href="lidar.html" class="mode-tab" role="tab" aria-selected="false">Inside the LiDAR &rarr;</a>
+        </div>
+      </div>
+
+      <div class="topbar-right">
+        <button type="button" id="btn-debug-toggle" class="icon-pill" title="Toggle coordinate axes &amp; engineering debug overlays (D)">
+          Debug
+        </button>
+
+        <label class="select-wrap compact" title="Adaptive Rendering Quality">
+          <span class="select-label">Quality</span>
+          <select id="select-quality" aria-label="Rendering Quality Preset">
+            <option value="high">High</option>
+            <option value="balanced" selected>Balanced</option>
+            <option value="low">Low (Laptop)</option>
+          </select>
+        </label>
+
+        <button type="button" id="btn-help-keys" class="icon-pill" title="Keyboard shortcuts (?)">
+          Keys
+        </button>
+
+        <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
+      </div>
+    </header>
+
+    <!-- Synchronized Phase & Telemetry Ribbon -->
+    <section class="status-ribbon" aria-label="Simulation Phase and Live Telemetry">
+      <div class="phase-info">
+        <span class="phase-pill" id="phase-badge">PHASE 01/06 &middot; SYSTEM INITIALIZATION</span>
+        <span class="phase-detail" id="phase-desc">Powering perception bus, verifying vehicle kinematics &amp; reference frame.</span>
+      </div>
+
+      <div class="telemetry-strip" role="status" aria-live="off">
+        <div class="tel-cell">
+          <span class="tel-k">EGO SPEED</span>
+          <span class="tel-v" id="tel-speed">0.0 <small>km/h</small></span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">ACCEL</span>
+          <span class="tel-v" id="tel-accel">0.00 <small>m/s&sup2;</small></span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">LIDAR RATE</span>
+          <span class="tel-v" id="tel-hz">0.0 <small>Hz</small></span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">TRACKS</span>
+          <span class="tel-v" id="tel-tracks">0</span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">MIN TTC</span>
+          <span class="tel-v" id="tel-ttc">&infin;</span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">CONTROL</span>
+          <span class="tel-v state-tag" id="tel-state">INIT</span>
+        </div>
+        <div class="tel-cell">
+          <span class="tel-k">SIM TIME</span>
+          <span class="tel-v" id="tel-time">00.00 <small>s</small></span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Subtle, Non-Intrusive Exploration Cue -->
+    <div class="discovery-bar" id="discovery-bar">
+      <span class="discovery-dot" aria-hidden="true"></span>
+      <span id="interaction-hint">Select any viewport to inspect its underlying system. Click a tracked vehicle in View 03 for live telemetry.</span>
+      <button type="button" id="btn-quad-reset" class="quad-return-btn hidden">Return to Quad Overview (Esc)</button>
+    </div>
+
+    <!-- Main Synchronized Multi-Viewport Stage -->
+    <main class="stage-container">
+      <div id="viewport-stage" class="viewport-stage layout-quad">
+
+        <!-- VIEW 01: Real-Time Vehicle Environment -->
+        <section class="viewport-card" id="vp-1" data-view="1" tabindex="0" aria-label="View 01: Real-Time Vehicle Environment">
+          <div class="vp-header">
+            <div class="vp-title-group">
+              <span class="vp-index">VIEW 01</span>
+              <h2 class="vp-title">Real-Time Vehicle Environment</h2>
+            </div>
+            <div class="vp-header-right">
+              <span class="vp-stat" id="v1-cam-stat">Follow Cam</span>
+              <button type="button" class="vp-expand-btn" data-expand="1" title="Expand or collapse View 01 (Key 1)" aria-label="Expand View 01">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M10 2h4v4M6 14H2v-4M14 2l-5 5M2 14l5-5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="vp-body">
+            <canvas id="canvas-view-1" class="vp-canvas"></canvas>
+
+            <!-- Compact Camera Controls (Always accessible in View 01) -->
+            <div class="vp-floating-bar top-left" data-no-expand>
+              <button type="button" class="mini-btn active" data-cam="follow">Follow</button>
+              <button type="button" class="mini-btn" data-cam="bev">Bird&rsquo;s-Eye</button>
+              <button type="button" class="mini-btn" data-cam="sensor">Sensor</button>
+              <button type="button" class="mini-btn" data-cam="orbit">Free Orbit</button>
+              <button type="button" class="mini-btn" data-cam="track" id="btn-cam-track">Track Obj</button>
+              <button type="button" class="mini-btn" id="btn-reset-cam-1" title="Reset Camera">Reset</button>
+            </div>
+
+            <!-- Expanded Detail Controls -->
+            <div class="vp-detail-bar" data-no-expand>
+              <label class="chk-pill"><input type="checkbox" id="chk-v1-rays" checked /> LiDAR Sweep</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-v1-boxes" checked /> 3D Boxes</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-v1-path" checked /> Planned Path</label>
+              <span class="detail-note">Drag to orbit in Free Orbit mode &middot; Physics frozen cleanly on Pause</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 02: LiDAR Point Cloud Reconstruction -->
+        <section class="viewport-card" id="vp-2" data-view="2" tabindex="0" aria-label="View 02: LiDAR Point Cloud Reconstruction">
+          <div class="vp-header">
+            <div class="vp-title-group">
+              <span class="vp-index">VIEW 02</span>
+              <h2 class="vp-title">LiDAR Point Cloud Reconstruction</h2>
+            </div>
+            <div class="vp-header-right">
+              <span class="vp-stat" id="v2-points-stat">0 pts &middot; 10 Hz</span>
+              <button type="button" class="vp-expand-btn" data-expand="2" title="Expand or collapse View 02 (Key 2)" aria-label="Expand View 02">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M10 2h4v4M6 14H2v-4M14 2l-5 5M2 14l5-5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="vp-body">
+            <canvas id="canvas-view-2" class="vp-canvas"></canvas>
+
+            <div class="vp-floating-bar top-left" data-no-expand>
+              <span class="sensor-chip" id="v2-geom-chip">360&deg; HFOV &middot; 120 m</span>
+              <button type="button" class="mini-btn" id="btn-reset-cam-2" title="Reset Point Cloud Orbit">Reset Orbit</button>
+            </div>
+
+            <!-- Expanded Detail Controls -->
+            <div class="vp-detail-bar" data-no-expand>
+              <label class="inline-ctrl">
+                Color
+                <select id="select-lidar-color">
+                  <option value="distance" selected>Distance</option>
+                  <option value="intensity">Intensity</option>
+                  <option value="object">Classification</option>
+                </select>
+              </label>
+              <label class="inline-ctrl">
+                Density
+                <select id="select-lidar-density">
+                  <option value="0.65">0.65&times;</option>
+                  <option value="1" selected>1.0&times;</option>
+                  <option value="1.35">1.35&times;</option>
+                </select>
+              </label>
+              <label class="inline-ctrl">
+                Pt Size
+                <input type="range" id="range-point-size" min="1.2" max="4.2" step="0.2" value="2.2" />
+              </label>
+              <label class="chk-pill"><input type="checkbox" id="chk-lidar-frustum" checked /> Frustum</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-lidar-noise" /> Sensor Noise</label>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 03: Object Detection & Tracking -->
+        <section class="viewport-card" id="vp-3" data-view="3" tabindex="0" aria-label="View 03: Object Detection and Tracking">
+          <div class="vp-header">
+            <div class="vp-title-group">
+              <span class="vp-index">VIEW 03</span>
+              <h2 class="vp-title">Object Detection &amp; Tracking</h2>
+            </div>
+            <div class="vp-header-right">
+              <span class="vp-stat" id="v3-tracks-stat">0 active tracks</span>
+              <button type="button" class="vp-expand-btn" data-expand="3" title="Expand or collapse View 03 (Key 3)" aria-label="Expand View 03">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M10 2h4v4M6 14H2v-4M14 2l-5 5M2 14l5-5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="vp-body">
+            <canvas id="canvas-view-3" class="vp-canvas interactive-canvas"></canvas>
+
+            <div class="vp-detail-bar" data-no-expand>
+              <label class="chk-pill"><input type="checkbox" id="chk-v3-boxes" checked /> Bounding Boxes</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-v3-trajectories" checked /> Trajectories</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-v3-occlusion" checked /> Occlusion Cones</label>
+              <label class="chk-pill"><input type="checkbox" id="chk-v3-labels" checked /> Track Telemetry</label>
+              <span class="detail-note">Click any tracked vehicle to open the Engineering Inspector</span>
+            </div>
+          </div>
+        </section>
+
+        <!-- VIEW 04: Autonomous Driving Intelligence -->
+        <section class="viewport-card" id="vp-4" data-view="4" tabindex="0" aria-label="View 04: Autonomous Driving Intelligence">
+          <div class="vp-header">
+            <div class="vp-title-group">
+              <span class="vp-index">VIEW 04</span>
+              <h2 class="vp-title">Autonomous Driving Intelligence</h2>
+            </div>
+            <div class="vp-header-right">
+              <span class="vp-stat" id="v4-state-badge">Rule-Based IDM / AEB</span>
+              <button type="button" class="vp-expand-btn" data-expand="4" title="Expand or collapse View 04 (Key 4)" aria-label="Expand View 04">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M10 2h4v4M6 14H2v-4M14 2l-5 5M2 14l5-5"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="vp-body">
+            <canvas id="canvas-view-4" class="vp-canvas"></canvas>
+
+            <!-- Expanded Event Timeline Drawer inside View 04 -->
+            <div class="vp-detail-bar event-bar" data-no-expand>
+              <span class="detail-note">Analytical rule-based longitudinal control (IDM headway + TTC-based AEB)</span>
+              <div class="event-ticker" id="v4-latest-event">Awaiting simulation events...</div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <!-- Engineering Object Inspector (Opens when user clicks a tracked vehicle) -->
+      <aside id="inspector-panel" class="inspector-panel hidden" aria-label="Vehicle Engineering Inspector">
+        <div class="inspector-head">
+          <div>
+            <span class="insp-kicker">ENGINEERING INSPECTOR</span>
+            <h3 id="insp-id">TRK-01</h3>
+          </div>
+          <button type="button" id="btn-close-inspector" class="close-btn" aria-label="Close Inspector">&times;</button>
+        </div>
+
+        <div class="inspector-grid">
+          <div class="insp-row"><span>Class</span><strong id="insp-class">Sedan</strong></div>
+          <div class="insp-row"><span>Track Status</span><strong id="insp-status">CONFIRMED</strong></div>
+          <div class="insp-row"><span>Distance</span><strong id="insp-dist">0.0 m</strong></div>
+          <div class="insp-row"><span>Relative Vel</span><strong id="insp-relvel">0.0 m/s</strong></div>
+          <div class="insp-row"><span>Object Speed</span><strong id="insp-absvel">0.0 km/h</strong></div>
+          <div class="insp-row"><span>Time-to-Collision</span><strong id="insp-ttc">&infin;</strong></div>
+          <div class="insp-row"><span>LiDAR Returns</span><strong id="insp-hits">0 pts</strong></div>
+          <div class="insp-row"><span>Geometric Occlusion</span><strong id="insp-occl">0%</strong></div>
+          <div class="insp-row"><span>Model Confidence</span><strong id="insp-conf">0%</strong></div>
+        </div>
+
+        <p class="insp-footnote">
+          Confidence is analytically derived from LiDAR return density and geometric range &mdash; not an ML classifier output.
+        </p>
+
+        <div class="inspector-actions">
+          <button type="button" id="btn-insp-track-cam" class="mini-btn active">Focus Tracking Camera</button>
+        </div>
+
+        <div class="inspector-events">
+          <span class="insp-kicker">RECENT SYSTEM EVENTS</span>
+          <ul id="event-log-list" class="event-log-list"></ul>
+        </div>
+      </aside>
+    </main>
+
+    <!-- Bottom Unified Simulation Control Dock -->
+    <footer class="control-dock" aria-label="Simulation Controls">
+      <!-- Deterministic Timeline Scrubber -->
+      <div class="timeline-row">
+        <span class="time-readout" id="time-current">00.0s</span>
+        <div class="scrubber-wrap">
+          <input
+            type="range"
+            id="timeline-slider"
+            min="0"
+            max="560"
+            step="1"
+            value="0"
+            aria-label="Deterministic Simulation Timeline Scrubber"
+          />
+          <div class="timeline-markers" id="timeline-markers" aria-hidden="true"></div>
+        </div>
+        <span class="time-readout" id="time-total">56.0s</span>
+      </div>
+
+      <!-- Controls Strip -->
+      <div class="controls-row">
+        <!-- Playback & Speed -->
+        <div class="ctrl-group">
+          <button type="button" id="btn-play-pause" class="ctrl-btn primary" title="Play / Pause (Space)">
+            Pause
+          </button>
+          <button type="button" id="btn-step-frame" class="ctrl-btn" title="Step Single Fixed Tick 1/60s (.)">
+            Step +1f
+          </button>
+          <button type="button" id="btn-restart" class="ctrl-btn" title="Restart Scenario (R)">
+            Restart
+          </button>
+
+          <div class="speed-group" role="group" aria-label="Simulation Speed">
+            <button type="button" class="speed-btn" data-speed="0.25">0.25&times;</button>
+            <button type="button" class="speed-btn" data-speed="0.5">0.5&times;</button>
+            <button type="button" class="speed-btn active" data-speed="1">1&times;</button>
+            <button type="button" class="speed-btn" data-speed="2">2&times;</button>
+          </div>
+        </div>
+
+        <!-- Scenario & Traffic Density -->
+        <div class="ctrl-group">
+          <label class="select-wrap">
+            <span class="select-label">Scenario</span>
+            <select id="select-scenario" aria-label="Select Autonomous Driving Scenario"></select>
+          </label>
+
+          <label class="select-wrap">
+            <span class="select-label">Traffic</span>
+            <select id="select-density" aria-label="Traffic Density">
+              <option value="low">Low</option>
+              <option value="moderate" selected>Moderate</option>
+              <option value="dense">Dense</option>
+            </select>
+          </label>
+        </div>
+
+        <!-- Synchronized Layer Toggles -->
+        <div class="ctrl-group">
+          <button type="button" id="toggle-lidar" class="toggle-chip active" title="Toggle LiDAR Visualization">
+            LiDAR
+          </button>
+          <button type="button" id="toggle-detection" class="toggle-chip active" title="Toggle Object Detection Boxes">
+            Detection
+          </button>
+          <button type="button" id="toggle-tracking" class="toggle-chip active" title="Toggle Tracking Trajectories">
+            Tracking
+          </button>
+        </div>
+      </div>
+    </footer>
   </div>
 
-  <!-- Minimalist Top Navigation -->
-  <header class="hud-top">
-    <div class="brand">
-      <span class="brand-name">Think<span class="dot">Module</span></span>
-      <div style="display:flex;align-items:center;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:8px;padding:2px;gap:2px;">
-        <span style="font-family:var(--mono);font-size:0.68rem;color:#04070e;background:#34d399;font-weight:700;padding:0.22rem 0.54rem;border-radius:6px;">Highway Testbench</span>
-        <a href="lidar.html" style="font-family:var(--mono);font-size:0.68rem;color:#93c5fd;text-decoration:none;padding:0.22rem 0.54rem;border-radius:6px;">Inside the LiDAR &rarr;</a>
+  <!-- Keyboard Shortcuts Modal -->
+  <div id="keys-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="keys-modal-title">
+    <div class="modal-card">
+      <div class="modal-head">
+        <h3 id="keys-modal-title">Keyboard Controls</h3>
+        <button type="button" id="btn-close-keys" class="close-btn" aria-label="Close">&times;</button>
+      </div>
+      <div class="keys-list">
+        <div><kbd>Space</kbd><span>Play / Pause synchronized simulation</span></div>
+        <div><kbd>.</kbd><span>Step forward 1 fixed physics tick (16.7 ms)</span></div>
+        <div><kbd>R</kbd><span>Restart active scenario deterministically</span></div>
+        <div><kbd>1</kbd> &ndash; <kbd>4</kbd><span>Expand View 01 &ndash; View 04 detail mode</span></div>
+        <div><kbd>Esc</kbd><span>Return to Quad Overview / close inspector</span></div>
+        <div><kbd>[</kbd> / <kbd>]</kbd><span>Decrease / increase simulation speed</span></div>
+        <div><kbd>D</kbd><span>Toggle engineering debug coordinates &amp; ranges</span></div>
       </div>
     </div>
-    <div class="top-actions">
-      <button class="ghost-btn active" data-cam="chase" id="camChaseBtn">3/4 Chase</button>
-      <button class="ghost-btn" data-cam="bev" id="camBevBtn">Top BEV</button>
-      <button class="ghost-btn" data-cam="hood" id="camHoodBtn">Hood Cam</button>
-      <span class="top-sep"></span>
-      <button class="ghost-btn" id="playPauseBtn">Pause</button>
-      <button class="ghost-btn" id="replayBtn">Replay Test</button>
-      <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
-    </div>
-  </header>
-
-  <!-- Left Floating ADAS Telemetry -->
-  <aside class="hud-left">
-    <div class="eyebrow">ADAS / AV Perception Testbench</div>
-    <h1>3D Sensor Fusion &amp; LiDAR</h1>
-    <div class="status-chip optimal" id="adasStatus">NOMINAL &bull; EKF FUSION LOCK</div>
-
-    <div class="metrics">
-      <div class="metric">
-        <span class="m-label">Ego Velocity</span>
-        <span class="m-val" id="telSpeed">50 km/h</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Min TTC</span>
-        <span class="m-val cyan" id="telTtc">&infin;</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Fused Conf.</span>
-        <span class="m-val accent" id="telConf">98%</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">AEB Decel</span>
-        <span class="m-val" id="telBrake">0.0 m/s&sup2;</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Active Returns</span>
-        <span class="m-val cyan" id="telPoints">4,600 pts</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Radar Doppler</span>
-        <span class="m-val" id="telDoppler">-13.9 m/s</span>
-      </div>
-    </div>
-  </aside>
-
-  <!-- Right Floating Sensor Fusion Diagnostics -->
-  <aside class="hud-right">
-    <div class="insp-head">
-      <span class="insp-tag" id="scenTag">EURO NCAP VRU SCENARIO</span>
-      <span class="insp-hint">Drag 360&deg; &bull; Scroll</span>
-    </div>
-    <h2 id="scenTitle">Occluded Pedestrian Test</h2>
-    <p id="scenDesc">
-      A pedestrian steps out from behind the box truck. Compare how heavy fog blinds RGB Vision while 64-Ch LiDAR and 77 GHz Radar maintain lock for timely AEB braking.
-    </p>
-
-    <div class="sensor-bars">
-      <div class="s-bar-row">
-        <div class="s-bar-head"><span>RGB Vision Camera</span><strong id="barCamVal">92%</strong></div>
-        <div class="s-bar-track"><div class="s-bar-fill cam" id="barCamFill" style="width:92%"></div></div>
-      </div>
-      <div class="s-bar-row">
-        <div class="s-bar-head"><span>64-Ch 1550nm LiDAR</span><strong id="barLidarVal">96%</strong></div>
-        <div class="s-bar-track"><div class="s-bar-fill lidar" id="barLidarFill" style="width:96%"></div></div>
-      </div>
-      <div class="s-bar-row">
-        <div class="s-bar-head"><span>77 GHz mmWave Radar</span><strong id="barRadarVal">88%</strong></div>
-        <div class="s-bar-track"><div class="s-bar-fill radar" id="barRadarFill" style="width:88%"></div></div>
-      </div>
-      <div class="s-bar-row fused">
-        <div class="s-bar-head"><span>EKF Fused Track</span><strong id="barFusedVal">99%</strong></div>
-        <div class="s-bar-track"><div class="s-bar-fill fused" id="barFusedFill" style="width:99%"></div></div>
-      </div>
-    </div>
-
-    <div class="insight-box" id="insightBox">
-      Watch the dark LiDAR shadow behind the truck — perception updates the exact millisecond the pedestrian clears the edge.
-    </div>
-  </aside>
-
-  <!-- Bottom Minimalist Control Dock -->
-  <footer class="hud-dock">
-    <div class="dock-section">
-      <span class="dock-label">Test Scenario</span>
-      <div class="seg-group" id="scenarioGroup">
-        <button class="seg active" data-scen="occluded_ped">Occluded Pedestrian</button>
-        <button class="seg" data-scen="cut_in">Highway Cut-In</button>
-        <button class="seg" data-scen="highway">Free Highway</button>
-      </div>
-    </div>
-
-    <div class="dock-divider"></div>
-
-    <div class="dock-section">
-      <span class="dock-label">Perception View</span>
-      <div class="seg-group" id="viewGroup">
-        <button class="seg active" data-view="fusion">Reality + AR</button>
-        <button class="seg" data-view="lidar">LiDAR Cloud</button>
-        <button class="seg" data-view="camera">Camera Raw</button>
-      </div>
-    </div>
-
-    <div class="dock-divider"></div>
-
-    <div class="dock-section">
-      <label class="slider-wrap">
-        <div class="s-head"><span>Dense Fog &amp; Weather</span><strong id="fogVal">15%</strong></div>
-        <input type="range" id="fogSlider" min="0" max="100" step="1" value="15" />
-      </label>
-    </div>
-
-    <div class="dock-divider"></div>
-
-    <div class="dock-section">
-      <span class="dock-label">Active Sensor Suite</span>
-      <div class="sensor-group" id="sensorGroup">
-        <button class="s-chip active" data-sensor="camera"><span class="s-dot cam"></span>Camera</button>
-        <button class="s-chip active" data-sensor="lidar"><span class="s-dot lidar"></span>LiDAR</button>
-        <button class="s-chip active" data-sensor="radar"><span class="s-dot radar"></span>77GHz Radar</button>
-      </div>
-    </div>
-  </footer>
+  </div>
 
   <script type="module" src="main.js"></script>
 </body>
