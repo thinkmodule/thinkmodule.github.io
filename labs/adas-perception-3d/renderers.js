@@ -1155,15 +1155,26 @@ export class Cinema3DRenderer {
       this.pathEdgeMat.color.setHex(corridorCol);
     }
 
-    // 8. Real Geometric 3D Occlusion Shadow Wedges behind Vehicles
+    // 8. Real Geometric 3D Occlusion Shadow Wedges behind Vehicles (clipped cleanly to highway barriers)
     const showShadows =
       this.visualMode === "sensor_fusion" || state.scenario.id === "truck_occlusion";
     let wedgeIdx = 0;
+    const clipRayToRoad = (angle, minDist, maxDist) => {
+      const dirX = Math.cos(angle);
+      let tEdge = maxDist;
+      if (dirX < -1e-4) {
+        tEdge = (-ROAD_HALF_WIDTH - ego.x) / dirX;
+      } else if (dirX > 1e-4) {
+        tEdge = (ROAD_HALF_WIDTH - ego.x) / dirX;
+      }
+      return Math.max(minDist, Math.min(maxDist, tEdge));
+    };
+
     for (const trk of state.tracks) {
       if (!showShadows || wedgeIdx >= this.occlusionWedges.length) break;
       if (trk.status === "OCCLUDED" || trk.relS < 4 || trk.distance > 75) continue;
-      // Emphasize trucks and large occluders
-      if (state.scenario.id !== "truck_occlusion" && trk.type !== "truck" && this.visualMode !== "sensor_fusion") {
+      // In Studio+AR / Split only highlight the heavy truck occluder; show all vehicles in Sensor Fusion
+      if (this.visualMode !== "sensor_fusion" && trk.type !== "truck") {
         continue;
       }
 
@@ -1184,15 +1195,18 @@ export class Cinema3DRenderer {
         if (a < minA) { minA = a; cMin = c; }
         if (a > maxA) { maxA = a; cMax = c; }
       }
-      const farDist = 95;
+      const farDist = 90;
       const a1 = baseA + minA;
       const a2 = baseA + maxA;
+      const d1 = clipRayToRoad(a1, Math.hypot(cMin.x - ego.x, cMin.z), farDist);
+      const d2 = clipRayToRoad(a2, Math.hypot(cMax.x - ego.x, cMax.z), farDist);
+
       const wMesh = this.occlusionWedges[wedgeIdx++];
       wMesh.visible = true;
       const pos = wMesh.geometry.attributes.position;
       pos.setXYZ(0, cMin.x, 0.04, cMin.z);
-      pos.setXYZ(1, ego.x + Math.cos(a1) * farDist, 0.04, Math.sin(a1) * farDist);
-      pos.setXYZ(2, ego.x + Math.cos(a2) * farDist, 0.04, Math.sin(a2) * farDist);
+      pos.setXYZ(1, ego.x + Math.cos(a1) * d1, 0.04, Math.sin(a1) * d1);
+      pos.setXYZ(2, ego.x + Math.cos(a2) * d2, 0.04, Math.sin(a2) * d2);
       pos.setXYZ(3, cMax.x, 0.04, cMax.z);
       pos.needsUpdate = true;
     }
