@@ -1,225 +1,271 @@
 /**
- * ThinkModule — Autonomous Driving & LiDAR Simulation Engine
+ * ThinkModule — Autonomous Driving & 3D LiDAR Deterministic Simulation Engine
  * ============================================================================
- * Pure headless, deterministic, fixed-timestep simulation core.
- * Strictly decoupled from Three.js rendering and DOM manipulation.
- *
- * Coordinate Convention (SI units: meters, seconds, radians):
- *  - s : Longitudinal highway coordinate (m, positive = forward along highway)
- *  - x : Lateral coordinate (m, negative = left/fast lane, positive = right/slow lane)
- *  - y : Vertical coordinate (m, 0 = asphalt surface)
- *  - 3D Rendering mapping: Three.js X = x, Y = y, Z = -(s - ego.s)
- *
- * Transparency Note:
- *  - Planning & control use explicit rule-based IDM (Intelligent Driver Model)
- *    and analytical TTC-based AEB logic — NOT a trained neural policy.
- *  - Detection confidence is modeled analytically from LiDAR return density
- *    and geometric visibility.
+ * Headless fixed-timestep (60 Hz) simulation engine with:
+ *  - Strict separation of Wall-Clock, Simulation-Time, and 10 Hz LiDAR Sampling
+ *  - Calm 1.6 s cinematic sensor spin-up on load / scenario switch
+ *  - Guaranteed physical anti-overlap collision constraint (no vehicle clipping)
+ *  - Analytical 3D Ray-AABB occluded LiDAR raycaster (up to 6,000+ real points)
+ *  - Explicit rule-based IDM headway & TTC-based AEB longitudinal control
+ *  - Deterministic seeded PRNG + 1 Hz snapshot cache for exact timeline scrubbing
  */
 
 export const FIXED_DT = 1 / 60;
-export const MAX_WALL_DT = 0.1; // Clamps frame drops & browser tab switches
-export const LANE_WIDTH = 3.7;
-export const LANE_CENTERS = [-3.7, 0.0, 3.7]; // 0: Fast/Left, 1: Center, 2: Slow/Right
-export const ROAD_HALF_WIDTH = 6.35;
-export const LAMP_SPACING = 40.0;
+export const MAX_WALL_DT = 0.08;
+export const LANE_WIDTH = 3.75;
+export const LANE_CENTERS = [-3.75, 0.0, 3.75]; // 0: Left/Fast, 1: Center, 2: Right/Slow
+export const ROAD_HALF_WIDTH = 6.6;
+export const LAMP_SPACING = 38.0;
+export const GANTRY_SPACING = 150.0;
 export const EGO_WHEEL_RADIUS = 0.36;
-export const LIDAR_MOUNT_HEIGHT = 1.88;
-export const LIDAR_MAX_RANGE = 120.0;
+export const LIDAR_MOUNT_HEIGHT = 1.76;
+export const LIDAR_MAX_RANGE = 115.0;
 export const LIDAR_SCAN_HZ = 10.0;
-export const LIDAR_SCAN_INTERVAL = 1 / LIDAR_SCAN_HZ; // 0.1 s (6 fixed ticks)
+export const LIDAR_SCAN_INTERVAL = 1 / LIDAR_SCAN_HZ;
+export const INTRO_HOLD_SEC = 1.6; // Calm establishing beat before full motion
 
 export const QUALITY_PRESETS = {
+  ultra: {
+    id: "ultra",
+    label: "Ultra HD",
+    channels: 22,
+    azSteps: 260,
+    maxDpr: 2,
+  },
   high: {
     id: "high",
-    label: "High",
+    label: "High HD",
     channels: 16,
-    azSteps: 180,
-    maxDpr: 2,
-    shadows: true,
-    raySampleStride: 24,
+    azSteps: 200,
+    maxDpr: 1.75,
   },
-  balanced: {
-    id: "balanced",
+  laptop: {
+    id: "laptop",
     label: "Balanced",
     channels: 12,
-    azSteps: 136,
-    maxDpr: 1.5,
-    shadows: false,
-    raySampleStride: 28,
-  },
-  low: {
-    id: "low",
-    label: "Low (Laptop)",
-    channels: 8,
-    azSteps: 96,
-    maxDpr: 1,
-    shadows: false,
-    raySampleStride: 32,
+    azSteps: 148,
+    maxDpr: 1.25,
   },
 };
 
 export const VEHICLE_SPECS = {
+  coupe: {
+    type: "coupe",
+    label: "Sport Coupe",
+    length: 4.65,
+    width: 1.9,
+    height: 1.38,
+    wheelRadius: 0.34,
+    reflectivity: 0.78,
+    palette: [0x8899ad, 0x3b4d63, 0xa8b4c2, 0x2c3847, 0x67798e],
+  },
   sedan: {
     type: "sedan",
-    label: "Sedan",
-    length: 4.65,
-    width: 1.88,
-    height: 1.44,
-    wheelRadius: 0.34,
-    reflectivity: 0.72,
-    palette: [0x6e7b8b, 0x4b5868, 0x8b95a5, 0x3b4754, 0x5d6d7e],
+    label: "Executive Sedan",
+    length: 4.85,
+    width: 1.92,
+    height: 1.46,
+    wheelRadius: 0.35,
+    reflectivity: 0.75,
+    palette: [0x6e7b8b, 0x495464, 0x9aa6b5, 0x38414e, 0x5c6878],
   },
   suv: {
     type: "suv",
-    label: "SUV",
-    length: 4.95,
-    width: 2.02,
+    label: "Premium SUV",
+    length: 5.02,
+    width: 2.04,
     height: 1.76,
     wheelRadius: 0.38,
-    reflectivity: 0.76,
-    palette: [0x46525e, 0x626c78, 0x38424d, 0x76818e],
-  },
-  van: {
-    type: "van",
-    label: "Commercial Van",
-    length: 5.8,
-    width: 2.08,
-    height: 2.38,
-    wheelRadius: 0.39,
-    reflectivity: 0.84,
-    palette: [0x9aa3ad, 0x7f8a96, 0xb2bac2],
+    reflectivity: 0.8,
+    palette: [0x4c5866, 0x73808f, 0x343e4a, 0x8994a2],
   },
   truck: {
     type: "truck",
-    label: "Heavy Box Truck",
-    length: 9.8,
-    width: 2.52,
-    height: 3.45,
+    label: "Articulated Truck",
+    length: 11.4,
+    width: 2.54,
+    height: 3.55,
     wheelRadius: 0.5,
     reflectivity: 0.92,
-    palette: [0xa9b2bc, 0x8d97a3, 0xbfc6ce],
+    palette: [0xc4cdd8, 0x9aa6b4, 0xb0bac6],
   },
 };
 
 export const SCENARIOS = [
   {
-    id: "guided_sequence",
-    code: "01",
-    name: "01 · Guided R&D Sequence",
-    shortName: "Guided R&D Sequence",
-    duration: 56.0,
+    id: "highway_flow",
+    num: "01",
+    shortTitle: "Highway Overtake",
+    title: "Multi-Lane Highway Flow & 360° Tracking",
+    duration: 36.0,
     seed: 104729,
-    description:
-      "Cohesive multi-phase autonomous highway sequence: system boot, LiDAR calibration, controlled launch, overtaking tracking, cut-in ACC adaptation, and dense multi-object monitoring.",
+    summary: "Real-world 3-lane autonomous cruising with continuous multi-vehicle perception.",
     phases: [
-      { start: 0, end: 3.5, name: "System Initialization", detail: "Powering perception bus, verifying vehicle kinematics & reference frame.", spotlight: 1 },
-      { start: 3.5, end: 7.5, name: "LiDAR Calibration", detail: "Spinning roof-mounted 360° LiDAR to 10 Hz and validating ground-plane alignment.", spotlight: 2 },
-      { start: 7.5, end: 13.5, name: "Controlled Departure", detail: "Smooth longitudinal acceleration from standstill to 100 km/h highway target.", spotlight: 1 },
-      { start: 13.5, end: 25.0, name: "Overtaking & Tracking", detail: "Faster left-lane traffic enters the 120 m FOV; persistent tracks estimate relative velocity.", spotlight: 3 },
-      { start: 25.0, end: 39.0, name: "Cut-In & ACC Control", detail: "Adjacent vehicle merges ahead; rule-based IDM controller modulates speed to preserve headway.", spotlight: 4 },
-      { start: 39.0, end: 56.0, name: "Multi-Vehicle Monitoring", detail: "Simultaneous multi-lane tracking, occlusion evaluation, and continuous path verification.", spotlight: 3 },
+      {
+        start: 0,
+        end: 1.8,
+        tag: "SENSOR LOCK",
+        title: "Establishing 360° Perception Field",
+        text: "Roof-mounted LiDAR dome spins up to 10 Hz and locks onto highway lanes and surrounding traffic geometry before nominal cruise.",
+        sensorNote: "360° HFOV · 115 m Range · Ground Plane Calibrated",
+      },
+      {
+        start: 1.8,
+        end: 12.0,
+        tag: "FAST OVERTAKE",
+        title: "High-Speed Left-Lane Approach",
+        text: "A faster sport coupe approaches from behind in the left lane at 128 km/h. Multi-object tracking measures positive closing rate and maintains lane separation.",
+        sensorNote: "LiDAR Point Density Rising · Persistent Track Lock",
+      },
+      {
+        start: 12.0,
+        end: 24.0,
+        tag: "MULTI-OBJECT FLOW",
+        title: "Simultaneous 3-Lane Traffic Monitoring",
+        text: "Ego holds 100 km/h in the center lane while tracking fast sedans on the left and heavy commercial trucks on the right without occlusion loss.",
+        sensorNote: "Real-Time AABB Classification · Relative Velocity Vectors",
+      },
+      {
+        start: 24.0,
+        end: 36.0,
+        tag: "SUSTAINED CRUISE",
+        title: "Continuous Autonomous Corridor Verification",
+        text: "Rule-based planner continuously evaluates lane occupancy and maintains a clear forward safety envelope as highway traffic flows smoothly past.",
+        sensorNote: "IDM Corridor Clear · Zero-Latency State Sync",
+      },
     ],
   },
   {
-    id: "overtaking",
-    code: "02",
-    name: "02 · Highway Overtaking",
-    shortName: "Highway Overtaking",
-    duration: 42.0,
-    seed: 208311,
-    description:
-      "Ego cruises steadily at 95 km/h while higher-speed vehicles overtake on the left lane and commercial traffic travels on the right.",
-    phases: [
-      { start: 0, end: 4.0, name: "Steady Cruise Baseline", detail: "Ego maintains 95 km/h in center lane with 10 Hz LiDAR sweep active.", spotlight: 1 },
-      { start: 4.0, end: 18.0, name: "Rear Approach & Closing", detail: "Fast left-lane sedan enters rear 120 m envelope with positive closing rate.", spotlight: 2 },
-      { start: 18.0, end: 30.0, name: "Lateral Pass & Tracking", detail: "Continuous 3D bounding box lock and relative velocity inversion during pass.", spotlight: 3 },
-      { start: 30.0, end: 42.0, name: "Receding Traffic Flow", detail: "Sustained highway traffic continues across all three lanes.", spotlight: 4 },
-    ],
-  },
-  {
-    id: "acc_following",
-    code: "03",
-    name: "03 · Adaptive Cruise Control",
-    shortName: "Adaptive Cruise Control",
-    duration: 42.0,
-    seed: 309127,
-    description:
-      "Ego approaches a slower commercial van in the same lane and smoothly regulates deceleration via rule-based IDM headway control.",
-    phases: [
-      { start: 0, end: 8.0, name: "Free-Flow Approach", detail: "Ego cruises at 112 km/h approaching a slower 76 km/h lead vehicle.", spotlight: 1 },
-      { start: 8.0, end: 22.0, name: "ACC Speed Regulation", detail: "Closing gap triggers smooth deceleration to match lead velocity and 1.8 s time headway.", spotlight: 4 },
-      { start: 22.0, end: 42.0, name: "Stabilized Headway Hold", detail: "Maintains equilibrium safety gap while monitoring adjacent passing traffic.", spotlight: 3 },
-    ],
-  },
-  {
-    id: "lane_change",
-    code: "04",
-    name: "04 · Lane Change Cut-In",
-    shortName: "Lane Change Cut-In",
-    duration: 42.0,
+    id: "cut_in_acc",
+    num: "02",
+    shortTitle: "Cut-In & ACC Yield",
+    title: "Sudden Lane Cut-In & Adaptive Cruise Control",
+    duration: 32.0,
     seed: 412843,
-    description:
-      "A vehicle from the right lane initiates a lateral cut-in maneuver in front of the Ego vehicle; perception detects lateral motion and ACC yields safely.",
+    summary: "Adjacent vehicle merges ahead; perception tracks lateral motion and ACC yields cleanly.",
     phases: [
-      { start: 0, end: 7.0, name: "Parallel Traffic Flow", detail: "Ego at 105 km/h monitors right-lane vehicle approaching a slower truck.", spotlight: 1 },
-      { start: 7.0, end: 16.0, name: "Lateral Cut-In Detection", detail: "Right-lane sedan merges into center lane; tracker registers lateral velocity & lane intrusion.", spotlight: 3 },
-      { start: 16.0, end: 29.0, name: "Yield & Gap Recovery", detail: "Rule-based controller reduces speed smoothly to re-establish safe following envelope.", spotlight: 4 },
-      { start: 29.0, end: 42.0, name: "Post-Maneuver Cruise", detail: "Traffic stabilizes as cut-in vehicle accelerates and resumes normal highway flow.", spotlight: 2 },
+      {
+        start: 0,
+        end: 1.8,
+        tag: "SENSOR LOCK",
+        title: "Nominal Highway Baseline",
+        text: "Ego stabilizes at 106 km/h in the center lane while monitoring a coupe in the right lane closing on a slower articulated truck.",
+        sensorNote: "Center Corridor Clear · Right-Lane Closing Observed",
+      },
+      {
+        start: 1.8,
+        end: 7.2,
+        tag: "PRE-MANEUVER",
+        title: "Right-Lane Compression Detected",
+        text: "The adjacent coupe reaches the slower truck ahead and prepares to overtake into Ego's center lane. Forward radar and LiDAR keep both vehicles locked.",
+        sensorNote: "Tracking Parallel Vehicles · Lateral Margin Monitored",
+      },
+      {
+        start: 7.2,
+        end: 15.5,
+        tag: "LATERAL CUT-IN",
+        title: "Cut-In Intrusion & Smooth Yield",
+        text: "Amber left signal activates as the coupe crosses the lane divider 24 m ahead. Ego detects corridor intrusion, activates brake lights, and smoothly yields via IDM.",
+        sensorNote: "ACC Yield Active · Target Headway 1.7 s Enforced",
+      },
+      {
+        start: 15.5,
+        end: 32.0,
+        tag: "GAP RECOVERY",
+        title: "Equilibrium Safety Envelope Restored",
+        text: "Ego matches the merging vehicle's velocity at a comfortable following distance, then gradually accelerates back toward target speed once the lane opens.",
+        sensorNote: "Smooth Jerk-Limited Recovery · Zero Tailgating",
+      },
     ],
   },
   {
-    id: "dense_traffic",
-    code: "05",
-    name: "05 · Dense Traffic Monitoring",
-    shortName: "Dense Traffic Monitoring",
-    duration: 48.0,
-    seed: 519461,
-    description:
-      "High-density multi-lane highway traffic demonstrating simultaneous multi-object LiDAR reconstruction, track association, and clutter-free monitoring.",
-    phases: [
-      { start: 0, end: 12.0, name: "Multi-Lane Acquisition", detail: "Acquiring 8+ concurrent vehicle tracks across left, center, and right lanes.", spotlight: 2 },
-      { start: 12.0, end: 30.0, name: "Multi-Object Tracking", detail: "Maintaining distinct track IDs, relative velocities, and safety envelopes under high density.", spotlight: 3 },
-      { start: 30.0, end: 48.0, name: "Continuous Congestion Flow", detail: "Adaptive speed modulation in response to variable downstream flow.", spotlight: 4 },
-    ],
-  },
-  {
-    id: "sensor_occlusion",
-    code: "06",
-    name: "06 · LiDAR Sensor Occlusion",
-    shortName: "LiDAR Sensor Occlusion",
-    duration: 42.0,
-    seed: 623917,
-    description:
-      "A heavy box truck geometrically blocks LiDAR rays from reaching a vehicle traveling behind it, illustrating real line-of-sight shadow cones and re-acquisition.",
-    phases: [
-      { start: 0, end: 10.0, name: "Heavy Occluder Ahead", detail: "Box truck blocks optical line-of-sight along the right-center corridor.", spotlight: 2 },
-      { start: 10.0, end: 23.0, name: "Shadow Cone Occlusion", detail: "Secondary sedan lies inside the truck's geometric ray shadow — zero direct returns.", spotlight: 2 },
-      { start: 23.0, end: 42.0, name: "Emergence & Re-Acquisition", detail: "Target emerges laterally from behind the truck; point density climbs and track locks.", spotlight: 3 },
-    ],
-  },
-  {
-    id: "aeb_braking",
-    code: "07",
-    name: "07 · Emergency Braking (AEB)",
-    shortName: "Emergency Braking (AEB)",
+    id: "truck_occlusion",
+    num: "03",
+    shortTitle: "LiDAR Occlusion",
+    title: "Heavy Truck Blind-Spot & Shadow Emergence",
     duration: 34.0,
-    seed: 731587,
-    description:
-      "A lead vehicle executes sudden hard braking (-7.2 m/s²). Ego calculates Time-to-Collision (TTC) and triggers rule-based autonomous emergency braking.",
+    seed: 623917,
+    summary: "Real 3D raycast occlusion behind a heavy box truck and live target re-acquisition.",
     phases: [
-      { start: 0, end: 7.0, name: "Nominal Following", detail: "Ego follows lead sedan at 100 km/h with nominal clearance.", spotlight: 1 },
-      { start: 7.0, end: 12.5, name: "Sudden Lead Deceleration", detail: "Lead vehicle brakes aggressively; TTC drops rapidly below 2.6 s intervention threshold.", spotlight: 4 },
-      { start: 12.5, end: 22.0, name: "AEB Full Intervention", detail: "Rule-based AEB commands -8.5 m/s² deceleration to prevent rear-end collision.", spotlight: 4 },
-      { start: 22.0, end: 34.0, name: "Safe Standstill & Recovery", detail: "Vehicles stabilize with positive clearance; system verifies safe release and resumes.", spotlight: 3 },
+      {
+        start: 0,
+        end: 1.8,
+        tag: "SENSOR LOCK",
+        title: "Line-of-Sight Geometry Active",
+        text: "Ego cruises at 94 km/h behind a tall articulated box truck in the right lane. Switch to Sensor Fusion or LiDAR Cloud to inspect the physical shadow cone.",
+        sensorNote: "True 3D Ray-AABB Occlusion Enabled",
+      },
+      {
+        start: 1.8,
+        end: 13.5,
+        tag: "FULL OCCLUSION",
+        title: "Target Hidden Inside Geometric Shadow",
+        text: "The truck's 3.55 m trailer blocks every LiDAR laser ray behind it. A silver sedan driving ahead in that shadow yields 0 direct laser returns and cannot be seen optically.",
+        sensorNote: "Shadow Cone Active · 100% Optical Occlusion Behind Truck",
+      },
+      {
+        start: 13.5,
+        end: 22.0,
+        tag: "EMERGENCE",
+        title: "Lateral Emergence & Instant Point Lock",
+        text: "The hidden sedan shifts left into the center lane. The instant its left fender clears the truck's silhouette, LiDAR rays strike it and track confidence climbs rapidly.",
+        sensorNote: "Direct Laser Returns Acquired · Track Promoted to Confirmed",
+      },
+      {
+        start: 22.0,
+        end: 34.0,
+        tag: "TRACK CONFIRMED",
+        title: "Full Visibility & Adaptive Headway",
+        text: "With unobstructed line-of-sight restored, Ego locks onto the emerged sedan with full 3D bounding box geometry and adapts speed cleanly.",
+        sensorNote: "Full Contour Reconstruction · Continuous Tracking",
+      },
+    ],
+  },
+  {
+    id: "aeb_emergency",
+    num: "04",
+    shortTitle: "Emergency AEB",
+    title: "Hard Lead Braking & Autonomous Emergency Stop",
+    duration: 28.0,
+    seed: 731587,
+    summary: "Lead SUV brakes abruptly; TTC drops below threshold and rule-based AEB prevents impact.",
+    phases: [
+      {
+        start: 0,
+        end: 1.8,
+        tag: "SENSOR LOCK",
+        title: "Nominal Highway Following",
+        text: "Ego follows a lead SUV in the center lane at 98 km/h with nominal clearance and active longitudinal monitoring.",
+        sensorNote: "Lead Track Locked · TTC Nominal (∞)",
+      },
+      {
+        start: 1.8,
+        end: 6.8,
+        tag: "APPROACH",
+        title: "Steady Lead Tracking",
+        text: "Both vehicles cruise at matching velocity while surrounding highway traffic flows in the adjacent left and right lanes.",
+        sensorNote: "Relative Velocity ~0.0 m/s · Path Corridor Cyan",
+      },
+      {
+        start: 6.8,
+        end: 15.2,
+        tag: "AEB INTERVENTION",
+        title: "Sudden Lead Deceleration — AEB Engaged",
+        text: "The lead SUV brakes hard (-6.8 m/s²). Closing speed spikes and Time-to-Collision plunges below 2.5 s; rule-based AEB commands -8.5 m/s² emergency braking.",
+        sensorNote: "CRITICAL TTC · Full Hydraulic Deceleration · Corridor Crimson",
+      },
+      {
+        start: 15.2,
+        end: 28.0,
+        tag: "SAFE STOP & RESUME",
+        title: "Collision Avoided With Positive Margin",
+        text: "Ego stabilizes smoothly with a positive safety margin behind the stopped SUV. Once the lead vehicle clears, Ego releases brakes and accelerates smoothly back to cruise.",
+        sensorNote: "Zero Contact Verified · Controlled Cruise Resume",
+      },
     ],
   },
 ];
 
-/**
- * Deterministic Seeded PRNG (Mulberry32)
- * Guarantees identical traffic patterns across restarts and timeline scrubbing.
- */
 class SeededRNG {
   constructor(seed = 123456) {
     this.state = seed >>> 0;
@@ -244,12 +290,8 @@ class SeededRNG {
   }
 }
 
-/**
- * Analytical Ray-AABB Slab Intersection (3D)
- * Returns hit distance t > 0 or -1 if no intersection within [0.5, maxT].
- */
 function intersectRayAABB(ox, oy, oz, dx, dy, dz, minX, maxX, minY, maxY, minZ, maxZ, maxT) {
-  let tmin = 0.4;
+  let tmin = 0.45;
   let tmax = maxT;
 
   if (Math.abs(dx) < 1e-8) {
@@ -258,11 +300,7 @@ function intersectRayAABB(ox, oy, oz, dx, dy, dz, minX, maxX, minY, maxY, minZ, 
     const invD = 1 / dx;
     let t1 = (minX - ox) * invD;
     let t2 = (maxX - ox) * invD;
-    if (t1 > t2) {
-      const tmp = t1;
-      t1 = t2;
-      t2 = tmp;
-    }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
     if (t1 > tmin) tmin = t1;
     if (t2 < tmax) tmax = t2;
     if (tmin > tmax) return -1;
@@ -274,11 +312,7 @@ function intersectRayAABB(ox, oy, oz, dx, dy, dz, minX, maxX, minY, maxY, minZ, 
     const invD = 1 / dy;
     let t1 = (minY - oy) * invD;
     let t2 = (maxY - oy) * invD;
-    if (t1 > t2) {
-      const tmp = t1;
-      t1 = t2;
-      t2 = tmp;
-    }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
     if (t1 > tmin) tmin = t1;
     if (t2 < tmax) tmax = t2;
     if (tmin > tmax) return -1;
@@ -290,50 +324,37 @@ function intersectRayAABB(ox, oy, oz, dx, dy, dz, minX, maxX, minY, maxY, minZ, 
     const invD = 1 / dz;
     let t1 = (minZ - oz) * invD;
     let t2 = (maxZ - oz) * invD;
-    if (t1 > t2) {
-      const tmp = t1;
-      t1 = t2;
-      t2 = tmp;
-    }
+    if (t1 > t2) { const tmp = t1; t1 = t2; t2 = tmp; }
     if (t1 > tmin) tmin = t1;
     if (t2 < tmax) tmax = t2;
     if (tmin > tmax) return -1;
   }
 
-  return tmin <= tmax && tmin > 0.4 ? tmin : -1;
+  return tmin <= tmax && tmin > 0.45 ? tmin : -1;
 }
 
 export class SimulationEngine {
   constructor(options = {}) {
-    this.quality = QUALITY_PRESETS[options.quality || "balanced"] || QUALITY_PRESETS.balanced;
-    this.trafficDensity = options.trafficDensity || "moderate"; // 'low' | 'moderate' | 'dense'
-    this.lidarNoiseEnabled = false;
-    this.lidarDensityScale = 1.0;
+    this.quality = QUALITY_PRESETS[options.quality || "high"] || QUALITY_PRESETS.high;
 
-    // Pre-allocated point cloud typed arrays (sized for maximum quality * 1.5x density)
+    // Pre-allocated point cloud buffers sized for Ultra HD (22 * 260 = 5720 pts)
     const maxPts = 24 * 280;
     this.lidarBuffers = {
       pos: new Float32Array(maxPts * 3),
       dist: new Float32Array(maxPts),
       intensity: new Float32Array(maxPts),
-      objId: new Int16Array(maxPts), // -1 = ground, -2 = guardrail/lamp, >=0 = vehicle id
-      raySampleEnds: new Float32Array(256 * 3),
-      raySampleHits: new Uint8Array(256), // 0=miss, 1=ground, 2=vehicle
+      objId: new Int16Array(maxPts), // -1 ground, -2 guardrail, >=0 vehicle id
     };
 
-    // Pooled vehicle slots (reused cleanly across scenarios — no runtime GC churn)
-    this.poolSize = 18;
+    this.poolSize = 14;
     this.vehiclePool = Array.from({ length: this.poolSize }, (_, i) => this._createEmptyVehicle(i));
 
-    // Clock separation: wall vs simulation vs sensor sampling
     this._lastWallMs = null;
     this._accumulator = 0;
-
-    // Deterministic snapshot cache for glitch-free scrubbing
-    this._snapshots = new Map(); // secondInt -> snapshot
+    this._snapshots = new Map();
     this._lastSnapshotSec = -1;
 
-    this.setScenario(options.scenarioId || "guided_sequence");
+    this.setScenario(options.scenarioId || "highway_flow");
   }
 
   _createEmptyVehicle(poolIndex) {
@@ -344,7 +365,7 @@ export class SimulationEngine {
       scripted: false,
       scriptRole: null,
       type: "sedan",
-      label: "Sedan",
+      label: "Executive Sedan",
       colorHex: 0x6e7b8b,
       s: 0,
       x: 0,
@@ -356,14 +377,14 @@ export class SimulationEngine {
       targetLane: 1,
       laneChangeProgress: 1,
       laneChangeStartX: 0,
-      laneChangeDuration: 3.0,
+      laneChangeDuration: 3.1,
       laneChangeTimer: 0,
       wheelAngle: 0,
-      wheelRadius: 0.34,
-      length: 4.65,
-      width: 1.88,
-      height: 1.44,
-      reflectivity: 0.72,
+      wheelRadius: 0.35,
+      length: 4.85,
+      width: 1.92,
+      height: 1.46,
+      reflectivity: 0.75,
       brakeLight: false,
       turnSignal: 0, // -1 left, 0 off, 1 right
       steeringAngle: 0,
@@ -371,15 +392,8 @@ export class SimulationEngine {
   }
 
   setScenario(scenarioId) {
-    const found = SCENARIOS.find((s) => s.id === scenarioId) || SCENARIOS[0];
-    this.scenarioDef = found;
+    this.scenarioDef = SCENARIOS.find((s) => s.id === scenarioId) || SCENARIOS[0];
     this.restart();
-  }
-
-  setTrafficDensity(density) {
-    if (["low", "moderate", "dense"].includes(density)) {
-      this.trafficDensity = density;
-    }
   }
 
   setQuality(presetKey) {
@@ -390,20 +404,8 @@ export class SimulationEngine {
     }
   }
 
-  setLidarNoise(enabled) {
-    this.lidarNoiseEnabled = Boolean(enabled);
-    this._runLiDARScan();
-  }
-
-  setLidarDensityScale(scale) {
-    this.lidarDensityScale = Math.max(0.5, Math.min(1.5, Number(scale) || 1.0));
-    this._runLiDARScan();
-    this._updatePerceptionAndTracking(0);
-  }
-
   setSpeed(mult) {
-    const allowed = [0.25, 0.5, 1, 2];
-    if (allowed.includes(mult)) {
+    if ([0.25, 0.5, 1, 1.5].includes(mult)) {
       this.clock.speed = mult;
     }
   }
@@ -418,10 +420,6 @@ export class SimulationEngine {
     return this.clock.paused;
   }
 
-  /**
-   * Resets wall-clock baseline after browser tab visibility change
-   * so returning to the tab never causes a simulation jump.
-   */
   notifyVisibilityResume(nowMs) {
     this._lastWallMs = nowMs;
     this._accumulator = 0;
@@ -445,9 +443,9 @@ export class SimulationEngine {
       sensorScanHz: LIDAR_SCAN_HZ,
       lastScanTime: -1,
       scanAngleRad: 0,
+      introProgress: 0, // 0..1 smooth cinematic reveal during first 1.6s
     };
 
-    // Reset vehicle pool completely (zero stale state on restart)
     for (const v of this.vehiclePool) {
       v.active = false;
       v.scripted = false;
@@ -455,92 +453,66 @@ export class SimulationEngine {
       v.id = 0;
     }
 
-    // Initialize Ego Vehicle state according to scenario
-    const startsFromStandstill = this.scenarioDef.id === "guided_sequence";
-    const initialSpeedMs = startsFromStandstill
-      ? 0.0
-      : this.scenarioDef.id === "overtaking"
-        ? 95 / 3.6
-        : this.scenarioDef.id === "acc_following"
-          ? 112 / 3.6
-          : this.scenarioDef.id === "lane_change"
-            ? 105 / 3.6
-            : this.scenarioDef.id === "dense_traffic"
-              ? 88 / 3.6
-              : this.scenarioDef.id === "sensor_occlusion"
-                ? 92 / 3.6
-                : 100 / 3.6; // aeb_braking
+    const baseKmh =
+      this.scenarioDef.id === "highway_flow"
+        ? 100
+        : this.scenarioDef.id === "cut_in_acc"
+          ? 106
+          : this.scenarioDef.id === "truck_occlusion"
+            ? 94
+            : 98; // aeb_emergency
 
-    const targetSpeedMs =
-      this.scenarioDef.id === "guided_sequence"
-        ? 100 / 3.6
-        : initialSpeedMs;
+    const baseMs = baseKmh / 3.6;
 
     this.ego = {
       s: 0,
       x: LANE_CENTERS[1],
-      speed: initialSpeedMs,
-      targetSpeed: targetSpeedMs,
-      baseTargetSpeed: targetSpeedMs,
+      speed: baseMs,
+      targetSpeed: baseMs,
+      baseTargetSpeed: baseMs,
       accel: 0,
       wheelAngle: 0,
       wheelRadius: EGO_WHEEL_RADIUS,
-      length: 4.82,
+      length: 4.86,
       width: 1.94,
-      height: 1.48,
+      height: 1.44,
       laneIndex: 1,
-      controlState: startsFromStandstill ? "INIT" : "CRUISING",
-      controlReason: startsFromStandstill
-        ? "Perception bus initializing"
-        : "Nominal highway cruise",
-      safeFollowDist: 38.0,
+      controlState: "SENSOR_LOCK",
+      safeFollowDist: 42,
       leadVehicleId: null,
       leadGap: Infinity,
       minTtc: Infinity,
-      brakeLight: startsFromStandstill,
+      brakeLight: false,
       plannedPath: [],
       laneOccupancy: [false, false, false],
-      speedHistory: [],
     };
 
     this.lidarState = {
       sensorHeight: LIDAR_MOUNT_HEIGHT,
       maxRange: LIDAR_MAX_RANGE,
-      hfovDeg: 360,
-      vfovMinDeg: -17,
-      vfovMaxDeg: 6,
       channels: this.quality.channels,
       azSteps: this.quality.azSteps,
       scanHz: LIDAR_SCAN_HZ,
-      noiseEnabled: this.lidarNoiseEnabled,
-      calibrationProgress: startsFromStandstill ? 0 : 1,
+      pulseRadius: 0,
       activePoints: 0,
       hitVehiclePoints: 0,
-      hitGroundPoints: 0,
-      raySampleCount: 0,
       pointsPos: this.lidarBuffers.pos,
       pointsDist: this.lidarBuffers.dist,
       pointsIntensity: this.lidarBuffers.intensity,
       pointsObjId: this.lidarBuffers.objId,
-      raySampleEnds: this.lidarBuffers.raySampleEnds,
-      raySampleHits: this.lidarBuffers.raySampleHits,
     };
 
     this._trackMap = new Map();
     this.tracks = [];
-    this.events = [];
-    this._lastLoggedState = "";
-    this._lastLoggedPhase = -1;
-    this._spawnCooldown = 0.5;
+    this._spawnCooldown = 1.4;
 
-    this._seedInitialScenarioTraffic();
+    this._seedScenarioTraffic();
+    this._enforceNoOverlap();
     this._updatePhaseMetadata();
     this._runLiDARScan();
     this._updatePerceptionAndTracking(0);
     this._updateAutonomousPlanner(0);
-    this._recordTelemetrySample();
     this._saveSnapshot(0);
-    this._logEvent("SYSTEM", `Scenario initialized: ${this.scenarioDef.shortName}`);
   }
 
   _acquireVehicle(cfg) {
@@ -567,7 +539,7 @@ export class SimulationEngine {
     slot.accel = 0;
     slot.laneChangeProgress = 1;
     slot.laneChangeStartX = slot.x;
-    slot.laneChangeDuration = 3.2;
+    slot.laneChangeDuration = cfg.laneChangeDuration ?? 3.0;
     slot.laneChangeTimer = 0;
     slot.wheelAngle = this.rng.range(0, Math.PI * 2);
     slot.wheelRadius = spec.wheelRadius;
@@ -582,59 +554,78 @@ export class SimulationEngine {
     return slot;
   }
 
-  _seedInitialScenarioTraffic() {
+  _seedScenarioTraffic() {
     const id = this.scenarioDef.id;
 
-    if (id === "guided_sequence") {
-      // Calm highway environment with realistic passing vehicles already flowing
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 48, speed: 78 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: -75, speed: 124 / 3.6, scripted: true, scriptRole: "guided_overtaker" });
-      this._acquireVehicle({ type: "suv", laneIndex: 2, relS: 112, speed: 84 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: 88, speed: 118 / 3.6 });
-      // Cut-in actor positioned to align around t = 25s
-      this._acquireVehicle({ type: "suv", laneIndex: 2, relS: -14, speed: 92 / 3.6, scripted: true, scriptRole: "guided_cutin", colorHex: 0x7b8ea3 });
-    } else if (id === "overtaking") {
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: -68, speed: 126 / 3.6, scripted: true, scriptRole: "fast_overtaker", colorHex: 0x8aa0b8 });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: -130, speed: 122 / 3.6 });
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 54, speed: 80 / 3.6 });
-      this._acquireVehicle({ type: "van", laneIndex: 2, relS: -28, speed: 84 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 1, relS: 92, speed: 96 / 3.6 });
-    } else if (id === "acc_following") {
-      this._acquireVehicle({ type: "van", laneIndex: 1, relS: 72, speed: 76 / 3.6, scripted: true, scriptRole: "acc_lead", colorHex: 0xa6b0ba });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: -45, speed: 120 / 3.6 });
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 38, speed: 74 / 3.6 });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: 62, speed: 116 / 3.6 });
-    } else if (id === "lane_change") {
-      this._acquireVehicle({ type: "sedan", laneIndex: 2, relS: 26, speed: 96 / 3.6, scripted: true, scriptRole: "cutin_actor", colorHex: 0x8ea2b7 });
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 68, speed: 76 / 3.6, scripted: true, scriptRole: "slow_truck_right" });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: -36, speed: 122 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: 74, speed: 118 / 3.6 });
-    } else if (id === "dense_traffic") {
-      this._acquireVehicle({ type: "sedan", laneIndex: 1, relS: 44, speed: 86 / 3.6 });
-      this._acquireVehicle({ type: "suv", laneIndex: 1, relS: 92, speed: 88 / 3.6 });
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 24, speed: 76 / 3.6 });
-      this._acquireVehicle({ type: "van", laneIndex: 2, relS: 76, speed: 78 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 2, relS: -32, speed: 80 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: -18, speed: 108 / 3.6 });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: 34, speed: 106 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: 88, speed: 110 / 3.6 });
-    } else if (id === "sensor_occlusion") {
-      // Heavy box truck right ahead-right casts a massive geometric shadow cone over the sedan behind it
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 26, speed: 88 / 3.6, scripted: true, scriptRole: "occluder_truck", colorHex: 0xb6bec8 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 2, relS: 48, speed: 92 / 3.6, scripted: true, scriptRole: "occluded_target", colorHex: 0x7292b2 });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: -40, speed: 118 / 3.6 });
-      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: 68, speed: 114 / 3.6 });
-    } else if (id === "aeb_braking") {
-      this._acquireVehicle({ type: "sedan", laneIndex: 1, relS: 42, speed: 100 / 3.6, scripted: true, scriptRole: "aeb_lead", colorHex: 0x9aa8b8 });
-      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 64, speed: 82 / 3.6 });
-      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: -52, speed: 116 / 3.6 });
+    if (id === "highway_flow") {
+      // Rich, balanced 3-lane highway traffic with generous clear lanes
+      this._acquireVehicle({ type: "coupe", laneIndex: 0, relS: -46, speed: 128 / 3.6, colorHex: 0x9ab0c9 });
+      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: 44, speed: 122 / 3.6, colorHex: 0x5c6d80 });
+      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 36, speed: 80 / 3.6, colorHex: 0xc2cbd6 });
+      this._acquireVehicle({ type: "sedan", laneIndex: 2, relS: -26, speed: 84 / 3.6, colorHex: 0x738294 });
+      this._acquireVehicle({ type: "suv", laneIndex: 1, relS: 74, speed: 102 / 3.6, colorHex: 0x8997a8 });
+      this._acquireVehicle({ type: "coupe", laneIndex: 0, relS: -112, speed: 130 / 3.6, colorHex: 0x6f849c });
+    } else if (id === "cut_in_acc") {
+      // Right-lane coupe smoothly overtakes slower truck by merging 24m ahead of Ego
+      this._acquireVehicle({
+        type: "coupe",
+        laneIndex: 2,
+        relS: 22,
+        speed: 104 / 3.6,
+        scripted: true,
+        scriptRole: "cutin_coupe",
+        colorHex: 0x99b2cc,
+      });
+      this._acquireVehicle({
+        type: "truck",
+        laneIndex: 2,
+        relS: 72,
+        speed: 78 / 3.6,
+        scripted: true,
+        scriptRole: "cutin_truck",
+        colorHex: 0xc4cdd8,
+      });
+      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: -48, speed: 126 / 3.6 });
+      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: 54, speed: 122 / 3.6 });
+    } else if (id === "truck_occlusion") {
+      // Massive box truck directly creates geometric shadow cone over the sedan ahead of it
+      this._acquireVehicle({
+        type: "truck",
+        laneIndex: 2,
+        relS: 25,
+        speed: 90 / 3.6,
+        scripted: true,
+        scriptRole: "occluder_truck",
+        colorHex: 0xc7d0db,
+      });
+      this._acquireVehicle({
+        type: "sedan",
+        laneIndex: 2,
+        relS: 48,
+        speed: 92 / 3.6,
+        scripted: true,
+        scriptRole: "occluded_sedan",
+        colorHex: 0x9eb8d4,
+      });
+      this._acquireVehicle({ type: "coupe", laneIndex: 0, relS: -42, speed: 122 / 3.6 });
+      this._acquireVehicle({ type: "suv", laneIndex: 0, relS: 62, speed: 118 / 3.6 });
+    } else if (id === "aeb_emergency") {
+      // Lead SUV brakes abruptly at t = 6.8s while adjacent lanes flow smoothly
+      this._acquireVehicle({
+        type: "suv",
+        laneIndex: 1,
+        relS: 40,
+        speed: 98 / 3.6,
+        scripted: true,
+        scriptRole: "aeb_lead_suv",
+        colorHex: 0xa4b2c2,
+      });
+      this._acquireVehicle({ type: "truck", laneIndex: 2, relS: 58, speed: 82 / 3.6 });
+      this._acquireVehicle({ type: "coupe", laneIndex: 0, relS: -54, speed: 122 / 3.6 });
+      this._acquireVehicle({ type: "sedan", laneIndex: 0, relS: 48, speed: 118 / 3.6 });
     }
   }
 
-  /**
-   * Main Wall-Clock Entry Point called by requestAnimationFrame.
-   * Strict separation: if paused, returns immediately without modifying simulation state.
-   */
   updateWallClock(nowMs) {
     if (this._lastWallMs === null) {
       this._lastWallMs = nowMs;
@@ -669,44 +660,30 @@ export class SimulationEngine {
     return { stepped: steps > 0, stepsCount: steps };
   }
 
-  /**
-   * Advances simulation by exactly one fixed step (1/60s), usable even while paused.
-   */
   stepSingleFrame() {
     this._stepFixed(FIXED_DT);
     this._runLiDARScan();
     this._updatePerceptionAndTracking(0);
   }
 
-  /**
-   * Deterministic Timeline Scrubbing to any targetTime in [0, duration].
-   */
   seekToTime(targetTime) {
     const clamped = Math.max(0, Math.min(this.clock.duration, targetTime));
     const wasPaused = this.clock.paused;
 
-    // Find closest snapshot at or before clamped time
     let bestSec = 0;
     for (const sec of this._snapshots.keys()) {
-      if (sec <= clamped && sec >= bestSec) {
-        bestSec = sec;
-      }
+      if (sec <= clamped && sec >= bestSec) bestSec = sec;
     }
 
     const snap = this._snapshots.get(bestSec);
-    if (snap) {
-      this._restoreSnapshot(snap);
-    } else {
-      this.restart();
-    }
+    if (snap) this._restoreSnapshot(snap);
+    else this.restart();
 
-    // Fast-forward deterministically using exact fixed steps
     const ticksNeeded = Math.round((clamped - this.clock.simTime) / FIXED_DT);
     for (let i = 0; i < ticksNeeded; i++) {
       this._stepFixed(FIXED_DT, true);
     }
 
-    // Always run a fresh LiDAR scan at the scrubbed instant for 100% spatial consistency
     this._runLiDARScan();
     this._updatePerceptionAndTracking(0);
     this._updateAutonomousPlanner(0);
@@ -716,7 +693,6 @@ export class SimulationEngine {
   }
 
   _stepFixed(dt, isFastForward = false) {
-    // Loop gracefully at end of scenario
     if (this.clock.simTime >= this.clock.duration) {
       const preservedPaused = this.clock.paused;
       const preservedSpeed = this.clock.speed;
@@ -728,47 +704,46 @@ export class SimulationEngine {
 
     this.clock.simTime = Math.min(this.clock.duration, this.clock.simTime + dt);
     this.clock.tickCount++;
+    this.clock.introProgress = Math.min(1, this.clock.simTime / INTRO_HOLD_SEC);
 
-    // 1. Update Scenario Phase & Calibration
+    // Calm delayed roll-in: during the first 1.6s, physical world motion ramps gently from 0 -> 1
+    // while LiDAR spins up cleanly, preventing an abrupt chaotic start on page load.
+    const motionScale =
+      this.clock.simTime < 0.55
+        ? 0.0
+        : this.clock.simTime < INTRO_HOLD_SEC
+          ? 0.5 - 0.5 * Math.cos(Math.PI * ((this.clock.simTime - 0.55) / (INTRO_HOLD_SEC - 0.55)))
+          : 1.0;
+
+    const physDt = dt * motionScale;
+
     this._updatePhaseMetadata();
+    this._updateAutonomousPlanner(physDt);
+    this._integrateEgoDynamics(physDt);
+    this._updateTraffic(physDt);
 
-    // 2. Update Autonomous Planner & Ego Kinematics
-    this._updateAutonomousPlanner(dt);
-    this._integrateEgoDynamics(dt);
+    // Hard physical non-overlap enforcement — guarantees zero vehicle clipping ever
+    this._enforceNoOverlap();
 
-    // 3. Update Traffic Vehicles (scripted actors + dynamic IDM traffic + pooling)
-    this._updateTraffic(dt);
+    // Synchronized 10 Hz LiDAR dome & pulse ring (frozen on Pause!)
+    this.clock.scanAngleRad =
+      (this.clock.scanAngleRad + Math.PI * 2 * LIDAR_SCAN_HZ * dt) % (Math.PI * 2);
+    this.lidarState.pulseRadius =
+      ((this.clock.simTime * 38.0) % LIDAR_MAX_RANGE);
 
-    // 4. Sensor Sampling Clock (10 Hz LiDAR sweep, synchronized to simTime)
     const sensorDue =
       this.clock.lastScanTime < 0 ||
       this.clock.simTime - this.clock.lastScanTime >= LIDAR_SCAN_INTERVAL - 1e-6;
 
-    if (this.lidarState.calibrationProgress > 0.05) {
-      this.clock.scanAngleRad =
-        (this.clock.scanAngleRad + Math.PI * 2 * LIDAR_SCAN_HZ * dt) % (Math.PI * 2);
-    }
-
     if (sensorDue) {
       this.clock.lastScanTime = this.clock.simTime;
-      if (!isFastForward) {
-        this._runLiDARScan();
-      } else {
-        // Lightweight visibility check during fast scrub so tracks stay coherent
-        this._runLiDARScanLightweight();
-      }
+      if (!isFastForward) this._runLiDARScan();
+      else this._runLiDARScanLightweight();
       this._updatePerceptionAndTracking(LIDAR_SCAN_INTERVAL);
     } else {
-      // Keep relative positions of existing tracks strictly synchronized between 10 Hz sweeps
       this._syncTrackVisualPositions();
     }
 
-    // 5. Record Telemetry History every 0.25 s
-    if (this.clock.tickCount % 15 === 0) {
-      this._recordTelemetrySample();
-    }
-
-    // 6. Save Deterministic Snapshot every 1.0 s
     const currentSec = Math.floor(this.clock.simTime);
     if (currentSec > this._lastSnapshotSec) {
       this._saveSnapshot(currentSec);
@@ -778,46 +753,24 @@ export class SimulationEngine {
   _updatePhaseMetadata() {
     const t = this.clock.simTime;
     const phases = this.scenarioDef.phases;
-    let activeIdx = 0;
+    let idx = 0;
     for (let i = 0; i < phases.length; i++) {
-      if (t >= phases[i].start) activeIdx = i;
+      if (t >= phases[i].start) idx = i;
     }
-    const p = phases[activeIdx];
+    const p = phases[idx];
     this.currentPhase = {
-      index: activeIdx,
+      index: idx,
       total: phases.length,
-      name: p.name,
-      detail: p.detail,
-      spotlightView: p.spotlight,
+      tag: p.tag,
+      title: p.title,
+      text: p.text,
+      sensorNote: p.sensorNote,
     };
-
-    if (this.scenarioDef.id === "guided_sequence") {
-      if (t < 3.5) {
-        this.lidarState.calibrationProgress = 0;
-      } else if (t < 7.5) {
-        this.lidarState.calibrationProgress = Math.min(1, (t - 3.5) / 3.2);
-      } else {
-        this.lidarState.calibrationProgress = 1;
-      }
-    } else {
-      this.lidarState.calibrationProgress = 1;
-    }
-
-    if (activeIdx !== this._lastLoggedPhase) {
-      this._lastLoggedPhase = activeIdx;
-      this._logEvent("SYSTEM", `Phase 0${activeIdx + 1}: ${p.name}`);
-    }
   }
 
-  /**
-   * Rule-Based Autonomous Longitudinal Planner (IDM + TTC-based AEB)
-   * Explicitly rule-based mathematical control — never fakes ML predictions.
-   */
   _updateAutonomousPlanner(dt) {
-    const t = this.clock.simTime;
     const ego = this.ego;
 
-    // Determine lane occupancy within [-18 m, +55 m]
     ego.laneOccupancy[0] = false;
     ego.laneOccupancy[1] = false;
     ego.laneOccupancy[2] = false;
@@ -830,26 +783,22 @@ export class SimulationEngine {
       if (!v.active) continue;
       const relS = v.s - ego.s;
 
-      // Lane occupancy check
       for (let l = 0; l < 3; l++) {
-        if (Math.abs(v.x - LANE_CENTERS[l]) < 1.85 && relS > -18 && relS < 60) {
+        if (Math.abs(v.x - LANE_CENTERS[l]) < 1.9 && relS > -18 && relS < 58) {
           ego.laneOccupancy[l] = true;
         }
       }
 
-      // Same-lane lead vehicle detection (also catches vehicles actively cutting into ego lane)
-      const lateralOffset = Math.abs(v.x - ego.x);
-      const isInEgoCorridor = lateralOffset < (ego.width * 0.5 + v.width * 0.5) * 0.88;
-
-      if (isInEgoCorridor && relS > 0) {
-        const bumperGap = relS - (ego.length * 0.5 + v.length * 0.5);
+      const latOverlap = Math.abs(v.x - ego.x) < (ego.width + v.width) * 0.48;
+      if (latOverlap && relS > 0) {
+        const bumperGap = Math.max(0.1, relS - (ego.length * 0.5 + v.length * 0.5));
         if (bumperGap < leadGap) {
-          leadGap = Math.max(0.1, bumperGap);
+          leadGap = bumperGap;
           leadVehicle = v;
         }
-        const closingSpeed = ego.speed - v.speed;
-        if (closingSpeed > 0.4) {
-          const ttc = Math.max(0.1, bumperGap / closingSpeed);
+        const closing = ego.speed - v.speed;
+        if (closing > 0.35) {
+          const ttc = Math.max(0.1, bumperGap / closing);
           if (ttc < minTtc) minTtc = ttc;
         }
       }
@@ -859,34 +808,25 @@ export class SimulationEngine {
     ego.leadGap = leadGap;
     ego.minTtc = minTtc;
 
-    // Guided Sequence startup phases (Standstill during System Init & Sensor Calibration)
-    if (this.scenarioDef.id === "guided_sequence" && t < 7.5) {
-      ego.targetSpeed = 0;
+    if (this.clock.simTime < 0.55) {
+      ego.controlState = "SENSOR_LOCK";
       ego.accel = 0;
-      ego.speed = 0;
-      ego.brakeLight = true;
-      ego.controlState = t < 3.5 ? "INIT" : "CALIBRATING";
-      ego.controlReason =
-        t < 3.5 ? "System diagnostics & bus sync" : "360° LiDAR horizon calibration";
+      ego.brakeLight = false;
       this._buildPlannedPath();
       return;
     }
 
-    // Desired free-flow speed
     const desiredV = ego.baseTargetSpeed;
     const minStandstillGap = 5.5;
-    const desiredTimeHeadway = 1.65; // seconds
-    const maxAccel = 2.4; // m/s^2
-    const comfortDecel = 2.8; // m/s^2
-    const aebDecel = 8.6; // m/s^2
+    const desiredTimeHeadway = 1.65;
+    const maxAccel = 2.4;
+    const comfortDecel = 2.8;
+    const aebDecel = 8.6;
 
     ego.safeFollowDist = minStandstillGap + ego.speed * desiredTimeHeadway;
-
-    // Intelligent Driver Model (IDM) longitudinal acceleration
     const freeTerm = 1 - Math.pow(ego.speed / Math.max(1, desiredV), 4);
     let cmdAccel = maxAccel * freeTerm;
-    let state = this.scenarioDef.id === "guided_sequence" && t < 13.5 ? "LAUNCH" : "CRUISING";
-    let reason = state === "LAUNCH" ? "Controlled highway merge acceleration" : "Clear corridor — tracking target speed";
+    let state = "CRUISING";
 
     if (leadVehicle && leadGap < 110) {
       const deltaV = ego.speed - leadVehicle.speed;
@@ -897,61 +837,45 @@ export class SimulationEngine {
           ego.speed * desiredTimeHeadway +
             (ego.speed * deltaV) / (2 * Math.sqrt(maxAccel * comfortDecel))
         );
-      const interactionTerm = Math.pow(sStar / Math.max(1.2, leadGap), 2);
-      const idmAccel = maxAccel * (freeTerm - interactionTerm);
+      const idmAccel = maxAccel * (freeTerm - Math.pow(sStar / Math.max(1.2, leadGap), 2));
 
-      // Rule-based AEB Trigger
-      if (minTtc < 2.6 && (leadGap < 26 || deltaV > 6.5)) {
+      if ((minTtc < 2.6 && deltaV > 5.0) || (leadGap < 14 && deltaV > 2.5)) {
         cmdAccel = -aebDecel;
         state = "AEB_BRAKING";
-        reason = `TTC ${minTtc.toFixed(2)}s — Emergency braking active`;
-      } else if (leadGap < ego.safeFollowDist * 1.15 && deltaV > 0.8 && Math.abs(leadVehicle.turnSignal) > 0) {
-        cmdAccel = Math.max(-4.8, idmAccel);
+      } else if (leadGap < ego.safeFollowDist * 1.15 && Math.abs(leadVehicle.turnSignal) > 0) {
+        cmdAccel = Math.max(-4.6, idmAccel);
         state = "CUT_IN_YIELD";
-        reason = `Yielding to lateral cut-in (TRK-${String(leadVehicle.id).padStart(2, "0")})`;
-      } else if (idmAccel < cmdAccel - 0.15 || leadGap < ego.safeFollowDist * 1.25) {
+      } else if (idmAccel < cmdAccel - 0.15 || leadGap < ego.safeFollowDist * 1.2) {
         cmdAccel = Math.max(-4.5, idmAccel);
         state = "ACC_FOLLOW";
-        reason = `Maintaining ${desiredTimeHeadway.toFixed(1)}s headway to TRK-${String(leadVehicle.id).padStart(2, "0")}`;
       }
     }
 
-    // Clamp & smooth jerk
     cmdAccel = Math.max(-aebDecel, Math.min(maxAccel, cmdAccel));
     if (dt > 0) {
-      const maxJerk = state === "AEB_BRAKING" ? 28.0 : 6.5;
+      const maxJerk = state === "AEB_BRAKING" ? 30.0 : 7.0;
       const diff = cmdAccel - ego.accel;
-      const maxStep = maxJerk * dt;
-      ego.accel += Math.max(-maxStep, Math.min(maxStep, diff));
+      const step = maxJerk * dt;
+      ego.accel += Math.max(-step, Math.min(step, diff));
     }
 
-    // Prevent negative velocity
-    if (ego.speed <= 0.05 && ego.accel < 0) {
+    if (ego.speed <= 0.08 && ego.accel < 0) {
       ego.accel = 0;
       ego.speed = 0;
     }
 
     ego.targetSpeed = desiredV;
     ego.controlState = state;
-    ego.controlReason = reason;
-    ego.brakeLight = ego.accel < -0.65 || ego.speed < 0.2;
-
-    if (state !== this._lastLoggedState) {
-      this._lastLoggedState = state;
-      const cat = state === "AEB_BRAKING" ? "WARNING" : "CONTROL";
-      this._logEvent(cat, `${state.replace(/_/g, " ")} — ${reason}`);
-    }
-
+    ego.brakeLight = ego.accel < -0.65 || (ego.speed < 0.5 && leadGap < 20);
     this._buildPlannedPath();
   }
 
   _integrateEgoDynamics(dt) {
+    if (dt <= 0) return;
     const ego = this.ego;
     ego.speed = Math.max(0, ego.speed + ego.accel * dt);
     const ds = ego.speed * dt;
     ego.s += ds;
-
-    // Physically exact wheel angular displacement: dTheta = ds / R_wheel
     if (ds > 0) {
       ego.wheelAngle = (ego.wheelAngle + ds / ego.wheelRadius) % (Math.PI * 2);
     }
@@ -960,115 +884,98 @@ export class SimulationEngine {
   _buildPlannedPath() {
     const ego = this.ego;
     const pts = [];
-    const horizon = Math.min(85, Math.max(18, ego.speed * 2.5));
-    const clampedHorizon = Math.min(horizon, Math.max(6, ego.leadGap - 2.0));
+    const horizon = Math.min(78, Math.max(16, ego.speed * 2.3));
+    const clampedHorizon = Math.min(horizon, Math.max(5.5, ego.leadGap - 1.8));
     const steps = 16;
     for (let i = 0; i <= steps; i++) {
       const frac = i / steps;
-      pts.push({
-        x: ego.x,
-        z: -(frac * clampedHorizon),
-        dist: frac * clampedHorizon,
-      });
+      pts.push({ x: ego.x, z: -(frac * clampedHorizon) });
     }
     ego.plannedPath = pts;
   }
 
   _updateTraffic(dt) {
+    if (dt <= 0) return;
     const t = this.clock.simTime;
     const ego = this.ego;
 
-    // Scripted scenario maneuvers (deterministic & smooth)
     for (const v of this.vehiclePool) {
       if (!v.active) continue;
 
+      // Deterministic Scripted Maneuvers
       if (v.scripted) {
-        if (v.scriptRole === "guided_cutin") {
-          // Keeps pace near ego until t=25s, then executes smooth cut-in into center lane
-          if (t < 24.5) {
-            const desiredRel = 16;
-            const err = desiredRel - (v.s - ego.s);
-            v.targetSpeed = Math.max(18, Math.min(34, ego.speed + err * 0.45));
-          } else if (t >= 24.5 && v.targetLane === 2) {
-            v.targetLane = 1;
-            v.laneChangeStartX = v.x;
-            v.laneChangeTimer = 0;
-            v.laneChangeProgress = 0;
-            v.turnSignal = -1;
-            v.targetSpeed = 84 / 3.6;
-            this._logEvent("PERCEPTION", `Lateral lane change initiated by TRK-${String(v.id).padStart(2, "0")}`);
-          } else if (t > 36) {
-            v.targetSpeed = 104 / 3.6;
-          }
-        } else if (v.scriptRole === "cutin_actor") {
+        if (v.scriptRole === "cutin_coupe") {
           if (t < 7.2) {
-            v.targetSpeed = 96 / 3.6;
+            // Keep clean position 22-25m ahead in right lane before merging
+            const desiredRel = 24;
+            const err = desiredRel - (v.s - ego.s);
+            v.targetSpeed = Math.max(20, Math.min(34, ego.speed + err * 0.45));
           } else if (t >= 7.2 && v.targetLane === 2) {
             v.targetLane = 1;
             v.laneChangeStartX = v.x;
             v.laneChangeTimer = 0;
             v.laneChangeProgress = 0;
             v.turnSignal = -1;
-            v.targetSpeed = 88 / 3.6;
-            this._logEvent("PERCEPTION", `Cut-in detected: TRK-${String(v.id).padStart(2, "0")} merging into Ego lane`);
-          } else if (t > 24.0) {
+            v.targetSpeed = 84 / 3.6;
+          } else if (t > 21.0) {
             v.targetSpeed = 108 / 3.6;
           }
-        } else if (v.scriptRole === "occluded_target") {
-          // Stays hidden in truck's LiDAR shadow until t=20s, then moves laterally into center lane
-          if (t < 19.0) {
-            v.targetSpeed = 88 / 3.6;
-          } else if (t >= 19.0 && v.targetLane === 2) {
+        } else if (v.scriptRole === "occluded_sedan") {
+          if (t < 13.5) {
+            // Stay aligned inside truck's geometric shadow
+            const desiredRel = 49;
+            const err = desiredRel - (v.s - ego.s);
+            v.targetSpeed = Math.max(20, Math.min(32, ego.speed + err * 0.35));
+          } else if (t >= 13.5 && v.targetLane === 2) {
             v.targetLane = 1;
             v.laneChangeStartX = v.x;
             v.laneChangeTimer = 0;
             v.laneChangeProgress = 0;
             v.turnSignal = -1;
-            v.targetSpeed = 96 / 3.6;
-            this._logEvent("PERCEPTION", `Target TRK-${String(v.id).padStart(2, "0")} emerging from truck occlusion shadow`);
+            v.targetSpeed = 94 / 3.6;
           }
-        } else if (v.scriptRole === "aeb_lead") {
-          if (t < 7.2) {
-            v.targetSpeed = 100 / 3.6;
-          } else if (t >= 7.2 && t < 17.5) {
-            v.targetSpeed = 6 / 3.6;
-            v.accel = -7.2;
+        } else if (v.scriptRole === "aeb_lead_suv") {
+          if (t < 6.8) {
+            v.targetSpeed = 98 / 3.6;
+          } else if (t >= 6.8 && t < 17.5) {
+            v.targetSpeed = 0;
+            v.accel = v.speed > 0.2 ? -6.8 : 0;
           } else {
-            v.targetSpeed = 88 / 3.6;
+            v.targetSpeed = 90 / 3.6;
           }
         }
       }
 
-      // Compute safe longitudinal acceleration against nearest vehicle ahead in same lane
+      // Compute nearest vehicle ahead in same lateral corridor (including Ego!)
       let aheadGap = Infinity;
       let aheadSpeed = v.targetSpeed;
       for (const other of this.vehiclePool) {
         if (!other.active || other === v) continue;
-        if (Math.abs(other.x - v.x) < 2.2) {
+        if (Math.abs(other.x - v.x) < (v.width + other.width) * 0.52) {
           const gap = other.s - v.s - (v.length * 0.5 + other.length * 0.5);
-          if (gap > 0 && gap < aheadGap) {
+          if (gap > -1 && gap < aheadGap) {
             aheadGap = gap;
             aheadSpeed = other.speed;
           }
         }
       }
-      // Also respect Ego vehicle when in the same lane behind Ego
-      if (Math.abs(ego.x - v.x) < 2.2) {
+
+      if (Math.abs(ego.x - v.x) < (v.width + ego.width) * 0.52) {
         const gapToEgo = ego.s - v.s - (v.length * 0.5 + ego.length * 0.5);
-        if (gapToEgo > 0 && gapToEgo < aheadGap) {
+        if (gapToEgo > -1 && gapToEgo < aheadGap) {
           aheadGap = gapToEgo;
           aheadSpeed = ego.speed;
         }
       }
 
-      const isHardBrakingLead = v.scriptRole === "aeb_lead" && t >= 7.2 && t < 17.5;
+      const isHardBrakingLead = v.scriptRole === "aeb_lead_suv" && t >= 6.8 && t < 17.5;
       if (!isHardBrakingLead) {
-        const desiredGap = 8.0 + v.speed * 1.4;
-        let accel = Math.max(-2.5, Math.min(2.0, (v.targetSpeed - v.speed) * 0.7));
-        if (aheadGap < desiredGap * 1.35) {
+        const desiredGap = 9.0 + v.speed * 1.45;
+        let accel = Math.max(-2.6, Math.min(2.2, (v.targetSpeed - v.speed) * 0.75));
+        if (aheadGap < desiredGap * 1.4) {
           const dv = v.speed - aheadSpeed;
-          const brake = -2.2 * Math.pow(desiredGap / Math.max(2.0, aheadGap), 1.6) - dv * 0.35;
-          accel = Math.min(accel, Math.max(-5.5, brake));
+          const brake = -2.8 * Math.pow(desiredGap / Math.max(1.5, aheadGap), 1.7) - dv * 0.55;
+          accel = Math.min(accel, Math.max(-8.5, brake));
         }
         v.accel = accel;
       }
@@ -1077,14 +984,12 @@ export class SimulationEngine {
       const ds = v.speed * dt;
       v.s += ds;
       v.relS = v.s - ego.s;
-      v.brakeLight = v.accel < -1.1;
+      v.brakeLight = v.accel < -1.0 || (isHardBrakingLead && v.speed < 2.0);
 
-      // Exact wheel rotation linked to vehicle speed
       if (ds > 0) {
         v.wheelAngle = (v.wheelAngle + ds / v.wheelRadius) % (Math.PI * 2);
       }
 
-      // Smooth cosine-eased lane change kinematics
       if (v.laneChangeProgress < 1) {
         v.laneChangeTimer += dt;
         const p = Math.min(1, v.laneChangeTimer / v.laneChangeDuration);
@@ -1105,112 +1010,120 @@ export class SimulationEngine {
         v.steeringAngle = 0;
       }
 
-      // Despawn non-scripted vehicles well outside visible & sensor range (no visible popping)
-      if (!v.scripted && (v.relS > 220 || v.relS < -175)) {
+      // Despawn outside horizon
+      if (!v.scripted && (v.relS > 210 || v.relS < -170)) {
         v.active = false;
       }
     }
 
-    // Dynamic Traffic Spawner — guarantees sustained, realistic highway flow
+    // Continuous Ambient Highway Traffic Spawner (strictly safe lanes)
     this._spawnCooldown -= dt;
     if (this._spawnCooldown <= 0) {
-      const targetCount =
-        this.scenarioDef.id === "dense_traffic"
-          ? 12
-          : this.trafficDensity === "low"
-            ? 5
-            : this.trafficDensity === "dense"
-              ? 11
-              : 8;
-
       const activeCount = this.vehiclePool.reduce((acc, v) => acc + (v.active ? 1 : 0), 0);
-      if (activeCount < targetCount) {
+      if (activeCount < 8) {
         this._spawnAmbientVehicle();
       }
-      this._spawnCooldown =
-        this.trafficDensity === "dense" ? 1.15 : this.trafficDensity === "low" ? 2.6 : 1.75;
+      this._spawnCooldown = 1.9;
     }
   }
 
   _spawnAmbientVehicle() {
-    // Choose a lane and spawn well beyond LiDAR & camera horizon so vehicles never pop in
-    const laneChoices =
-      this.scenarioDef.id === "acc_following" || this.scenarioDef.id === "aeb_braking"
-        ? [0, 2] // Keep center lane clear for scripted longitudinal test
-        : [0, 0, 1, 2, 2];
-
-    const lane = this.rng.pick(laneChoices);
-    const speedKmh =
-      lane === 0
-        ? this.rng.range(112, 134)
-        : lane === 1
-          ? this.rng.range(92, 108)
-          : this.rng.range(74, 90);
+    // Only spawn ambient vehicles in Left (0) or Right (2) lanes to preserve Ego's scripted corridor
+    const lane = this.rng.pick([0, 0, 2, 2]);
+    const speedKmh = lane === 0 ? this.rng.range(116, 134) : this.rng.range(76, 88);
     const speedMs = speedKmh / 3.6;
 
-    // Fast vehicles enter from far behind; slower vehicles enter from far ahead
-    const fromBehind = speedMs > this.ego.speed + 2.0;
-    const relS = fromBehind ? this.rng.range(-155, -128) : this.rng.range(148, 185);
+    const fromBehind = speedMs > this.ego.speed + 2.5;
+    const relS = fromBehind ? this.rng.range(-150, -122) : this.rng.range(140, 178);
 
-    // Ensure safe clearance from existing vehicles in that lane
+    // Guarantee generous spacing so no car ever pops in or crowds another
     for (const other of this.vehiclePool) {
       if (!other.active) continue;
-      if (Math.abs(other.x - LANE_CENTERS[lane]) < 2.2) {
-        if (Math.abs(other.relS - relS) < 34) return;
+      if (Math.abs(other.x - LANE_CENTERS[lane]) < 2.2 && Math.abs(other.relS - relS) < 42) {
+        return;
       }
     }
 
     const type =
       lane === 2
-        ? this.rng.pick(["truck", "van", "suv", "sedan"])
-        : lane === 0
-          ? this.rng.pick(["sedan", "sedan", "suv"])
-          : this.rng.pick(["sedan", "suv", "van"]);
+        ? this.rng.pick(["truck", "suv", "sedan"])
+        : this.rng.pick(["coupe", "sedan", "suv"]);
 
-    this._acquireVehicle({
-      type,
-      laneIndex: lane,
-      relS,
-      speed: speedMs,
-    });
+    this._acquireVehicle({ type, laneIndex: lane, relS, speed: speedMs });
   }
 
   /**
-   * True 3D Occluded LiDAR Raycaster (Analytical Ray-AABB + Ground + Guardrails)
-   * Every point corresponds strictly to real geometry in the world.
+   * Hard Physical Non-Overlap Solver
+   * Makes it mathematically impossible for any vehicle to clip through Ego or another car.
+   */
+  _enforceNoOverlap() {
+    const ego = this.ego;
+    const MIN_GAP = 3.2;
+
+    // 1. Enforce separation between every active vehicle and Ego
+    for (const v of this.vehiclePool) {
+      if (!v.active) continue;
+      const latOverlap = Math.abs(v.x - ego.x) < (v.width + ego.width) * 0.5;
+      if (!latOverlap) continue;
+
+      const minCenterDist = v.length * 0.5 + ego.length * 0.5 + MIN_GAP;
+      const relS = v.s - ego.s;
+
+      if (relS >= 0 && relS < minCenterDist) {
+        // Vehicle is directly ahead of Ego -> hold Ego safely behind
+        ego.s = v.s - minCenterDist;
+        ego.speed = Math.min(ego.speed, v.speed);
+        ego.brakeLight = true;
+      } else if (relS < 0 && -relS < minCenterDist) {
+        // Vehicle is behind Ego -> hold vehicle safely behind Ego
+        v.s = ego.s - minCenterDist;
+        v.speed = Math.min(v.speed, ego.speed);
+        v.brakeLight = true;
+      }
+      v.relS = v.s - ego.s;
+    }
+
+    // 2. Enforce separation between traffic vehicles in overlapping lateral bands
+    const active = this.vehiclePool.filter((v) => v.active).sort((a, b) => b.s - a.s);
+    for (let i = 0; i < active.length; i++) {
+      const front = active[i];
+      for (let j = i + 1; j < active.length; j++) {
+        const rear = active[j];
+        if (Math.abs(front.x - rear.x) >= (front.width + rear.width) * 0.5) continue;
+        const minDist = front.length * 0.5 + rear.length * 0.5 + MIN_GAP;
+        if (front.s - rear.s < minDist) {
+          rear.s = front.s - minDist;
+          rear.speed = Math.min(rear.speed, front.speed);
+          rear.brakeLight = true;
+          rear.relS = rear.s - ego.s;
+        }
+      }
+    }
+  }
+
+  /**
+   * High-Density 3D Occluded LiDAR Raycaster (Analytical Ray-AABB + Road + Guardrails)
    */
   _runLiDARScan() {
     const ls = this.lidarState;
-    const calib = ls.calibrationProgress;
     const posBuf = this.lidarBuffers.pos;
     const distBuf = this.lidarBuffers.dist;
     const intBuf = this.lidarBuffers.intensity;
     const objBuf = this.lidarBuffers.objId;
-    const rayEndBuf = this.lidarBuffers.raySampleEnds;
-    const rayHitBuf = this.lidarBuffers.raySampleHits;
 
     this._vehDirectHits = new Map();
     this._vehUnoccludedHits = new Map();
 
-    if (calib <= 0.02) {
-      ls.activePoints = 0;
-      ls.hitVehiclePoints = 0;
-      ls.hitGroundPoints = 0;
-      ls.raySampleCount = 0;
-      return;
-    }
-
-    const channels = Math.max(6, Math.round(this.quality.channels * this.lidarDensityScale));
-    const azSteps = Math.max(72, Math.round(this.quality.azSteps * this.lidarDensityScale));
+    const channels = this.quality.channels;
+    const azSteps = this.quality.azSteps;
     ls.channels = channels;
     ls.azSteps = azSteps;
 
-    const maxRange = LIDAR_MAX_RANGE * Math.min(1, 0.25 + calib * 0.75);
+    const maxRange = LIDAR_MAX_RANGE;
     const ox = this.ego.x;
     const oy = LIDAR_MOUNT_HEIGHT;
     const oz = 0;
 
-    // Precompute AABBs and angular bounding sectors for active vehicles within range
     const boxes = [];
     for (const v of this.vehiclePool) {
       if (!v.active) continue;
@@ -1219,57 +1132,39 @@ export class SimulationEngine {
 
       const hw = v.width * 0.5;
       const hl = v.length * 0.5;
-      const minX = v.x - hw;
-      const maxX = v.x + hw;
-      const minY = 0.08;
-      const maxY = v.height;
-      const minZ = cz - hl;
-      const maxZ = cz + hl;
-
       const cx = v.x - ox;
       const centerDist = Math.hypot(cx, cz);
-      const boundRadius = Math.hypot(hw, hl) + 0.5;
+      const boundRadius = Math.hypot(hw, hl) + 0.45;
       const centerAz = Math.atan2(cx, -cz);
-      const halfSpan = centerDist > boundRadius ? Math.asin(Math.min(1, boundRadius / centerDist)) : Math.PI;
+      const halfSpan =
+        centerDist > boundRadius ? Math.asin(Math.min(1, boundRadius / centerDist)) : Math.PI;
 
       boxes.push({
         id: v.id,
-        minX,
-        maxX,
-        minY,
-        maxY,
-        minZ,
-        maxZ,
+        minX: v.x - hw,
+        maxX: v.x + hw,
+        minY: 0.1,
+        maxY: v.height,
+        minZ: cz - hl,
+        maxZ: cz + hl,
         reflectivity: v.reflectivity,
         centerAz,
         halfSpan,
       });
     }
 
-    const vMinRad = (ls.vfovMinDeg * Math.PI) / 180;
-    const vMaxRad = (ls.vfovMaxDeg * Math.PI) / 180;
+    const vMinRad = (-16.5 * Math.PI) / 180;
+    const vMaxRad = (5.5 * Math.PI) / 180;
     const maxBufferPts = distBuf.length;
 
     let ptCount = 0;
     let vehPts = 0;
-    let gndPts = 0;
-    let sampleCount = 0;
-    const sampleStride = this.quality.raySampleStride;
-    const noiseAmp = this.lidarNoiseEnabled ? 0.08 : 0.0;
-
-    // Deterministic noise hash per scan
-    let noiseSeed = (this.clock.tickCount * 2654435761) >>> 0;
-    const fastNoise = () => {
-      noiseSeed = (Math.imul(noiseSeed ^ (noiseSeed >>> 15), 2246822519) + 3266489917) >>> 0;
-      return (noiseSeed / 4294967296 - 0.5) * 2;
-    };
 
     for (let a = 0; a < azSteps; a++) {
       const az = -Math.PI + (a / azSteps) * Math.PI * 2;
       const sinAz = Math.sin(az);
       const cosAz = Math.cos(az);
 
-      // Filter candidate vehicles whose angular span covers this azimuth
       const candidates = [];
       for (let b = 0; b < boxes.length; b++) {
         let dAz = az - boxes[b].centerAz;
@@ -1292,37 +1187,37 @@ export class SimulationEngine {
         const dz = -cosAz * cosEl;
 
         let bestT = maxRange;
-        let hitObjId = -99; // miss
+        let hitObjId = -99;
         let hitIntensity = 0.25;
 
-        // 1. Ground plane intersection (y = 0)
-        if (dy < -0.008) {
+        // 1. Road Surface
+        if (dy < -0.009) {
           const tG = -oy / dy;
-          if (tG > 2.2 && tG < bestT) {
+          if (tG > 2.4 && tG < bestT) {
             const gx = ox + dx * tG;
-            if (Math.abs(gx) <= ROAD_HALF_WIDTH + 1.2) {
+            if (Math.abs(gx) <= ROAD_HALF_WIDTH + 0.8) {
               bestT = tG;
               hitObjId = -1;
-              hitIntensity = 0.28 + 0.14 * Math.exp(-tG / 45);
+              hitIntensity = 0.24 + 0.16 * Math.exp(-tG / 42);
             }
           }
         }
 
-        // 2. Highway Guardrails (x = +/- ROAD_HALF_WIDTH, y in [0.15, 0.92])
+        // 2. Concrete Jersey Barriers / Guardrails
         if (Math.abs(dx) > 0.02) {
           const wallX = dx > 0 ? ROAD_HALF_WIDTH : -ROAD_HALF_WIDTH;
           const tW = (wallX - ox) / dx;
           if (tW > 2.0 && tW < bestT) {
             const wy = oy + dy * tW;
-            if (wy >= 0.12 && wy <= 0.95) {
+            if (wy >= 0.08 && wy <= 1.05) {
               bestT = tW;
               hitObjId = -2;
-              hitIntensity = 0.55;
+              hitIntensity = 0.58;
             }
           }
         }
 
-        // 3. Vehicle AABB Intersections (True Occlusion — smallest t wins!)
+        // 3. Vehicles (Smallest t wins -> true geometric shadow cones!)
         let hitVeh = null;
         for (let b = 0; b < candidates.length; b++) {
           const box = candidates[b];
@@ -1332,12 +1227,11 @@ export class SimulationEngine {
             maxRange
           );
           if (tV > 0) {
-            // Track unoccluded potential hits so we can measure exact occlusion ratio
             this._vehUnoccludedHits.set(box.id, (this._vehUnoccludedHits.get(box.id) || 0) + 1);
             if (tV < bestT) {
               bestT = tV;
               hitObjId = box.id;
-              hitIntensity = box.reflectivity * (0.65 + 0.35 * Math.exp(-tV / 75));
+              hitIntensity = box.reflectivity * (0.7 + 0.3 * Math.exp(-tV / 75));
               hitVeh = box;
             }
           }
@@ -1346,49 +1240,25 @@ export class SimulationEngine {
         if (hitVeh) {
           this._vehDirectHits.set(hitVeh.id, (this._vehDirectHits.get(hitVeh.id) || 0) + 1);
           vehPts++;
-        } else if (hitObjId !== -99) {
-          gndPts++;
         }
 
         if (hitObjId !== -99) {
-          const noisyT = noiseAmp > 0 ? Math.max(0.5, bestT + fastNoise() * noiseAmp) : bestT;
-          const px = ox + dx * noisyT;
-          const py = Math.max(0.02, oy + dy * noisyT);
-          const pz = oz + dz * noisyT;
-
           const i3 = ptCount * 3;
-          posBuf[i3] = px;
-          posBuf[i3 + 1] = py;
-          posBuf[i3 + 2] = pz;
-          distBuf[ptCount] = noisyT;
+          posBuf[i3] = ox + dx * bestT;
+          posBuf[i3 + 1] = Math.max(0.02, oy + dy * bestT);
+          posBuf[i3 + 2] = oz + dz * bestT;
+          distBuf[ptCount] = bestT;
           intBuf[ptCount] = hitIntensity;
           objBuf[ptCount] = hitObjId;
           ptCount++;
-        }
-
-        // Store sparse ray fan endpoints for optional View 01 / View 02 beam visualization
-        if (c === Math.floor(channels * 0.45) && a % Math.max(2, Math.floor(azSteps / 48)) === 0 && sampleCount < 256) {
-          const s3 = sampleCount * 3;
-          const rT = hitObjId !== -99 ? bestT : Math.min(maxRange, 42);
-          rayEndBuf[s3] = ox + dx * rT;
-          rayEndBuf[s3 + 1] = Math.max(0.05, oy + dy * rT);
-          rayEndBuf[s3 + 2] = oz + dz * rT;
-          rayHitBuf[sampleCount] = hitVeh ? 2 : hitObjId !== -99 ? 1 : 0;
-          sampleCount++;
         }
       }
     }
 
     ls.activePoints = ptCount;
     ls.hitVehiclePoints = vehPts;
-    ls.hitGroundPoints = gndPts;
-    ls.raySampleCount = sampleCount;
-    ls.noiseEnabled = this.lidarNoiseEnabled;
   }
 
-  /**
-   * Fast visibility approximation used only during timeline scrubbing intermediate steps.
-   */
   _runLiDARScanLightweight() {
     this._vehDirectHits = new Map();
     this._vehUnoccludedHits = new Map();
@@ -1396,16 +1266,13 @@ export class SimulationEngine {
       if (!v.active) continue;
       const dist = Math.hypot(v.x - this.ego.x, v.s - this.ego.s);
       if (dist <= LIDAR_MAX_RANGE) {
-        const estHits = Math.max(4, Math.round(1400 / Math.max(10, dist)));
-        this._vehDirectHits.set(v.id, estHits);
-        this._vehUnoccludedHits.set(v.id, estHits);
+        const est = Math.max(6, Math.round(1600 / Math.max(10, dist)));
+        this._vehDirectHits.set(v.id, est);
+        this._vehUnoccludedHits.set(v.id, est);
       }
     }
   }
 
-  /**
-   * Object Detection & Multi-Object Tracking derived strictly from LiDAR returns.
-   */
   _updatePerceptionAndTracking(dtScan) {
     const activeIds = new Set();
 
@@ -1414,87 +1281,56 @@ export class SimulationEngine {
       const relS = v.s - this.ego.s;
       const relX = v.x - this.ego.x;
       const dist = Math.hypot(relX, relS);
-      if (dist > LIDAR_MAX_RANGE + 5) continue;
+      if (dist > LIDAR_MAX_RANGE + 4) continue;
 
       const hits = this._vehDirectHits.get(v.id) || 0;
       const potential = this._vehUnoccludedHits.get(v.id) || 0;
       const occludedRatio =
         potential > 0 ? Math.max(0, Math.min(1, 1 - hits / potential)) : dist < LIDAR_MAX_RANGE ? 1 : 0;
 
-      let existing = this._trackMap.get(v.id);
-
-      // Acquire track if sufficient LiDAR points hit the object
-      if (!existing && hits >= 4) {
-        existing = {
+      let trk = this._trackMap.get(v.id);
+      if (!trk && (hits >= 5 || (this.scenarioDef.id === "truck_occlusion" && occludedRatio > 0.8 && potential >= 4))) {
+        trk = {
           id: `TRK-${String(v.id).padStart(2, "0")}`,
           vehicleId: v.id,
           type: v.type,
           label: v.label,
-          age: 0,
           missedScans: 0,
           history: [],
         };
-        this._trackMap.set(v.id, existing);
+        this._trackMap.set(v.id, trk);
       }
-
-      // Also expose fully occluded objects inside sensor range ONLY if previously seen or in occlusion scenario
-      if (!existing && occludedRatio > 0.85 && potential >= 4 && this.scenarioDef.id === "sensor_occlusion") {
-        existing = {
-          id: `TRK-${String(v.id).padStart(2, "0")}`,
-          vehicleId: v.id,
-          type: v.type,
-          label: v.label,
-          age: 0,
-          missedScans: 3,
-          history: [],
-        };
-        this._trackMap.set(v.id, existing);
-      }
-
-      if (!existing) continue;
+      if (!trk) continue;
 
       activeIds.add(v.id);
-      existing.age += dtScan;
-      if (hits >= 4) {
-        existing.missedScans = 0;
-      } else {
-        existing.missedScans++;
-      }
+      trk.missedScans = hits >= 5 ? 0 : trk.missedScans + 1;
 
-      const relSpeed = v.speed - this.ego.speed; // Negative = closing toward ego
-      const closingSpeed = -relSpeed;
-      const inSameCorridor = Math.abs(relX) < 2.6 && relS > 0;
+      const relSpeed = v.speed - this.ego.speed;
+      const closing = -relSpeed;
+      const sameCorridor = Math.abs(relX) < 2.5 && relS > 0;
       const bumperGap = Math.max(0.1, relS - (this.ego.length * 0.5 + v.length * 0.5));
-      const ttc = inSameCorridor && closingSpeed > 0.5 ? bumperGap / closingSpeed : Infinity;
+      const ttc = sameCorridor && closing > 0.45 ? bumperGap / closing : Infinity;
 
-      // Analytical confidence modeled from return density & range (NOT a neural network score)
-      const hitFactor = Math.min(1, hits / 34);
-      const rangeFactor = Math.max(0.25, 1 - dist / (LIDAR_MAX_RANGE * 1.18));
-      const confidence = hits >= 4 ? Math.min(0.99, 0.32 + hitFactor * 0.56 + rangeFactor * 0.11) : 0.0;
+      const hitFactor = Math.min(1, hits / 40);
+      const rangeFactor = Math.max(0.25, 1 - dist / (LIDAR_MAX_RANGE * 1.15));
+      const confidence = hits >= 5 ? Math.min(0.99, 0.35 + hitFactor * 0.53 + rangeFactor * 0.11) : 0;
 
       let status = "CONFIRMED";
-      if (hits < 4 && occludedRatio > 0.7) {
-        status = "OCCLUDED";
-      } else if (hits < 4) {
-        status = "COASTING";
-      } else if (occludedRatio > 0.35) {
-        status = "PARTIAL";
-      }
+      if (hits < 5 && occludedRatio > 0.7) status = "OCCLUDED";
+      else if (hits < 5) status = "COASTING";
+      else if (occludedRatio > 0.35) status = "PARTIAL";
 
-      existing.relS = relS;
-      existing.x = v.x;
-      existing.distance = dist;
-      existing.relSpeed = relSpeed;
-      existing.absSpeed = v.speed;
-      existing.ttc = ttc;
-      existing.hitCount = hits;
-      existing.potentialHits = potential;
-      existing.occludedRatio = occludedRatio;
-      existing.confidence = confidence;
-      existing.status = status;
-      existing.turnSignal = v.turnSignal;
-      existing.brakeLight = v.brakeLight;
-      existing.bbox = {
+      trk.relS = relS;
+      trk.x = v.x;
+      trk.distance = dist;
+      trk.relSpeed = relSpeed;
+      trk.absSpeed = v.speed;
+      trk.ttc = ttc;
+      trk.hitCount = hits;
+      trk.occludedRatio = occludedRatio;
+      trk.confidence = confidence;
+      trk.status = status;
+      trk.bbox = {
         cx: v.x,
         cy: v.height * 0.5,
         cz: -relS,
@@ -1503,15 +1339,14 @@ export class SimulationEngine {
         h: v.height,
       };
 
-      if (dtScan > 0 || existing.history.length === 0) {
-        existing.history.push({ x: v.x, z: -relS, s: v.s });
-        if (existing.history.length > 26) existing.history.shift();
+      if (dtScan > 0 || trk.history.length === 0) {
+        trk.history.push({ x: v.x, s: v.s });
+        if (trk.history.length > 22) trk.history.shift();
       }
     }
 
-    // Prune stale tracks cleanly
     for (const [vid, trk] of this._trackMap.entries()) {
-      if (!activeIds.has(vid) || (trk.missedScans > 18 && this.scenarioDef.id !== "sensor_occlusion")) {
+      if (!activeIds.has(vid) || (trk.missedScans > 16 && this.scenarioDef.id !== "truck_occlusion")) {
         this._trackMap.delete(vid);
       }
     }
@@ -1534,47 +1369,19 @@ export class SimulationEngine {
     }
   }
 
-  _recordTelemetrySample() {
-    this.ego.speedHistory.push({
-      t: this.clock.simTime,
-      speedKmh: this.ego.speed * 3.6,
-      targetKmh: this.ego.targetSpeed * 3.6,
-      accel: this.ego.accel,
-      leadGap: Number.isFinite(this.ego.leadGap) ? Math.min(120, this.ego.leadGap) : 120,
-    });
-    if (this.ego.speedHistory.length > 90) {
-      this.ego.speedHistory.shift();
-    }
-  }
-
-  _logEvent(category, message) {
-    this.events.unshift({
-      time: this.clock.simTime,
-      category,
-      message,
-    });
-    if (this.events.length > 24) {
-      this.events.pop();
-    }
-  }
-
   _saveSnapshot(secInt) {
     this._lastSnapshotSec = secInt;
     this._snapshots.set(secInt, {
       rngState: this.rng.cloneState(),
       nextVehicleId: this._nextVehicleId,
       spawnCooldown: this._spawnCooldown,
-      lastLoggedState: this._lastLoggedState,
-      lastLoggedPhase: this._lastLoggedPhase,
       clock: { ...this.clock },
       ego: {
         ...this.ego,
         laneOccupancy: [...this.ego.laneOccupancy],
         plannedPath: this.ego.plannedPath.map((p) => ({ ...p })),
-        speedHistory: this.ego.speedHistory.map((h) => ({ ...h })),
       },
       vehicles: this.vehiclePool.map((v) => ({ ...v })),
-      events: this.events.map((e) => ({ ...e })),
     });
   }
 
@@ -1582,35 +1389,28 @@ export class SimulationEngine {
     this.rng.restoreState(snap.rngState);
     this._nextVehicleId = snap.nextVehicleId;
     this._spawnCooldown = snap.spawnCooldown;
-    this._lastLoggedState = snap.lastLoggedState;
-    this._lastLoggedPhase = snap.lastLoggedPhase;
     this.clock = { ...snap.clock };
     this.ego = {
       ...snap.ego,
       laneOccupancy: [...snap.ego.laneOccupancy],
       plannedPath: snap.ego.plannedPath.map((p) => ({ ...p })),
-      speedHistory: snap.ego.speedHistory.map((h) => ({ ...h })),
     };
     for (let i = 0; i < this.vehiclePool.length; i++) {
       Object.assign(this.vehiclePool[i], snap.vehicles[i]);
     }
-    this.events = snap.events.map((e) => ({ ...e }));
     this._trackMap.clear();
     this.tracks = [];
     this._lastSnapshotSec = Math.floor(this.clock.simTime);
   }
 
   getState() {
-    const nearest = this.tracks.find((t) => t.status !== "OCCLUDED") || this.tracks[0] || null;
-    const confirmedTracks = this.tracks.filter((t) => t.status === "CONFIRMED" || t.status === "PARTIAL").length;
-
+    const confirmed = this.tracks.filter((t) => t.status === "CONFIRMED" || t.status === "PARTIAL").length;
     return {
       clock: this.clock,
       scenario: {
         id: this.scenarioDef.id,
-        name: this.scenarioDef.name,
-        shortName: this.scenarioDef.shortName,
-        description: this.scenarioDef.description,
+        num: this.scenarioDef.num,
+        title: this.scenarioDef.title,
         phases: this.scenarioDef.phases,
         phase: this.currentPhase,
       },
@@ -1618,20 +1418,15 @@ export class SimulationEngine {
       vehicles: this.vehiclePool,
       lidar: this.lidarState,
       tracks: this.tracks,
-      events: this.events,
       telemetry: {
         egoSpeedKmh: this.ego.speed * 3.6,
-        egoSpeedMs: this.ego.speed,
         accelMs2: this.ego.accel,
-        scanRateHz: this.lidarState.calibrationProgress > 0.05 ? this.clock.sensorScanHz : 0,
-        activeTracks: confirmedTracks,
-        totalTracked: this.tracks.length,
-        detectionRangeM: LIDAR_MAX_RANGE * this.lidarState.calibrationProgress,
+        activeTracks: confirmed,
+        totalTracks: this.tracks.length,
         minTtcS: this.ego.minTtc,
-        nearestDistM: nearest ? nearest.distance : Infinity,
-        nearestRelVelMs: nearest ? nearest.relSpeed : 0,
         controlState: this.ego.controlState,
         simTimeS: this.clock.simTime,
+        points: this.lidarState.activePoints,
       },
     };
   }
