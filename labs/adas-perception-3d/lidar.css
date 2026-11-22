@@ -409,4 +409,4 @@ body.ui-hidden .hud-dock {
   transform: translateX(-50%);
   z-index: 20;
   max-width: calc(100vw - 24px);
-  background: var(--glass-strong);
+  background: var(--glass-strong);}
