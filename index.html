@@ -358,7 +358,163 @@
         <span class="tag">Git &amp; GitHub</span>
       </div>
     </section>
+<style>
+  .work-section {
+    margin-top: 3.5rem;
+    padding-top: 2.5rem;
+    border-top: 1px solid rgba(148, 163, 184, 0.16);
+  }
+  .services-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1rem;
+    margin: 1.4rem 0 1.8rem;
+  }
+  .service-card {
+    background: rgba(14, 24, 45, 0.72);
+    border: 1px solid rgba(56, 189, 248, 0.18);
+    border-radius: 14px;
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+  }
+  .service-tag {
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #38bdf8;
+  }
+  .service-card h3 {
+    font-size: 1.02rem;
+    color: #f1f5f9;
+    margin: 0;
+  }
+  .service-card p {
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: #94a3b8;
+    margin: 0;
+  }
+  .contact-box {
+    background: linear-gradient(135deg, rgba(15, 28, 52, 0.92), rgba(9, 17, 33, 0.95));
+    border: 1px solid rgba(56, 189, 248, 0.34);
+    border-radius: 16px;
+    padding: 1.65rem 1.8rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1.5rem;
+    flex-wrap: wrap;
+  }
+  .contact-copy {
+    max-width: 560px;
+  }
+  .contact-copy h3 {
+    font-size: 1.2rem;
+    color: #f8fafc;
+    margin: 0 0 0.35rem;
+  }
+  .contact-copy p {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    color: #94a3b8;
+    margin: 0;
+  }
+  .contact-actions {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+  .cta-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+    padding: 0.72rem 1.15rem;
+    border-radius: 10px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+  }
+  .cta-btn:hover {
+    transform: translateY(-1px);
+  }
+  .cta-primary {
+    background: #38bdf8;
+    color: #040914;
+    border: 1px solid #38bdf8;
+  }
+  .cta-primary:hover {
+    background: #7dd3fc;
+  }
+  .cta-secondary {
+    background: rgba(255, 255, 255, 0.05);
+    color: #e2e8f0;
+    border: 1px solid rgba(148, 163, 184, 0.35);
+  }
+  .cta-secondary:hover {
+    border-color: #38bdf8;
+    background: rgba(56, 189, 248, 0.12);
+  }
+  @media (max-width: 860px) {
+    .services-grid { grid-template-columns: 1fr; }
+  }
+</style>
 
+<section id="contact" class="work-section">
+  <h2>Work With Me &amp; Technical Services</h2>
+  <p class="section-desc">Bridging complex hardware, AI systems, and interactive 3D engineering communication — for product teams, engineering orgs, and technical marketing.</p>
+
+  <div class="services-grid">
+    <div class="service-card">
+      <span class="service-tag">01 &bull; WebGL &amp; Three.js</span>
+      <h3>Interactive 3D Product &amp; Hardware Explainers</h3>
+      <p>Browser-native 3D exploded views, X-ray cutaways, and live physical simulations that let customers and stakeholders inspect complex machinery and hardware directly on your website.</p>
+    </div>
+    <div class="service-card">
+      <span class="service-tag">02 &bull; AI &amp; Systems</span>
+      <h3>AI Infrastructure &amp; Prototyping Dashboards</h3>
+      <p>Interactive technical demos, inference/latency calculators, and custom proof-of-concept tools that make LLM architecture and system trade-offs immediately tangible.</p>
+    </div>
+    <div class="service-card">
+      <span class="service-tag">03 &bull; Automotive &amp; ADAS</span>
+      <h3>ADAS Perception &amp; Sensor Visualizations</h3>
+      <p>Real-time LiDAR, Radar, and sensor-fusion scenario visualizers built with automotive testing perspective for validation explainers, trade shows, and technical training.</p>
+    </div>
+  </div>
+
+  <div class="contact-box">
+    <div class="contact-copy">
+      <h3>Let&rsquo;s build something technical and unmistakable.</h3>
+      <p>Open to freelance 3D WebGL &amp; technical prototyping projects as well as full-time roles in AI Systems, Technical Solutions, and ADAS/Perception Engineering.</p>
+    </div>
+    <div class="contact-actions">
+      <a href="mailto:mehmetrusenayvaz@gmail.com?subject=Project%20or%20Collaboration%20Inquiry" class="cta-btn cta-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+          <path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"></path>
+        </svg>
+        Email Me
+      </a>
+      <a href="https://www.linkedin.com/in/mehmetrusenayvaz" target="_blank" rel="noopener noreferrer" class="cta-btn cta-secondary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M19 3a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h14m-.5 15.5v-5.3a3.26 3.26 0 0 0-3.26-3.26c-.85 0-1.84.52-2.28 1.3v-1.11h-2.79v8.37h2.79v-4.93c0-.77.62-1.4 1.39-1.4a1.4 1.4 0 0 1 1.4 1.4v4.93h2.75M6.88 8.56a1.68 1.68 0 0 0 1.68-1.68c0-.93-.75-1.69-1.68-1.69a1.69 1.69 0 0 0-1.69 1.69c0 .93.76 1.68 1.69 1.68m1.39 9.94v-8.37H5.5v8.37h2.77z"></path>
+        </svg>
+        LinkedIn
+      </a>
+      <a href="https://github.com/thinkmodule" target="_blank" rel="noopener noreferrer" class="cta-btn cta-secondary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2A10 10 0 0 0 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0 0 12 2z"></path>
+        </svg>
+        GitHub
+      </a>
+    </div>
+  </div>
+</section>
     <footer>
       <span>&copy; 2026 Mehmet Rusen Ayvaz</span>
       <span>thinkmodule.github.io &bull; <a href="https://github.com/thinkmodule/thinkmodule.github.io" target="_blank" rel="noopener">Repository</a></span>
