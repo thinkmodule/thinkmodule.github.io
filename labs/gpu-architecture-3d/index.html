@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D AI-GPU Architecture & Thermal Studio — ThinkModule</title>
+  <title>3D AI-GPU Architecture &amp; Thermal Studio — ThinkModule</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
   <link rel="stylesheet" href="style.css" />
   <script type="importmap">
@@ -38,39 +38,84 @@
     </div>
   </header>
 
-  <!-- Left Floating Telemetry Pill -->
-  <aside class="hud-left">
-    <div class="eyebrow">SXM-Class CoWoS-S Accelerator</div>
-    <h1>AI-GPU Exploded Architecture</h1>
-    <div class="status-chip" id="telStatus">DECODE &bull; MEMORY WALL</div>
+  <!-- Left Floating Sidebar Stack: Telemetry + Collapsible Controls -->
+  <div class="hud-left-stack">
+    <aside class="hud-left">
+      <div class="eyebrow">SXM-Class CoWoS-S Accelerator</div>
+      <h1>AI-GPU Exploded Architecture</h1>
+      <div class="status-chip" id="telStatus">DECODE &bull; MEMORY WALL</div>
 
-    <div class="metrics">
-      <div class="metric">
-        <span class="m-label">Junction Temp</span>
-        <span class="m-val" id="telTemp">62.4 &deg;C</span>
+      <div class="metrics">
+        <div class="metric">
+          <span class="m-label">Junction Temp</span>
+          <span class="m-val" id="telTemp">62.4 &deg;C</span>
+        </div>
+        <div class="metric">
+          <span class="m-label">Board Power</span>
+          <span class="m-val" id="telPower">410 W</span>
+        </div>
+        <div class="metric">
+          <span class="m-label">Core Clock</span>
+          <span class="m-val" id="telClock">1980 MHz</span>
+        </div>
+        <div class="metric">
+          <span class="m-label">Tensor MFU</span>
+          <span class="m-val accent" id="telMfu">4.5%</span>
+        </div>
+        <div class="metric">
+          <span class="m-label">HBM3 Bus</span>
+          <span class="m-val cyan" id="telBw">3.05 TB/s</span>
+        </div>
+        <div class="metric">
+          <span class="m-label">Throttling</span>
+          <span class="m-val" id="telThrottle">0.0%</span>
+        </div>
       </div>
-      <div class="metric">
-        <span class="m-label">Board Power</span>
-        <span class="m-val" id="telPower">410 W</span>
+    </aside>
+
+    <!-- Collapsible Studio Controls -->
+    <section class="hud-controls" id="controlsCard" aria-label="Simulation Controls">
+      <button type="button" class="panel-toggle" id="toggleControlsBtn" aria-expanded="true">
+        <span class="dock-label">Studio Controls</span>
+        <span class="toggle-icon" aria-hidden="true">&#9662;</span>
+      </button>
+
+      <div class="controls-body" id="controlsBody">
+        <div class="dock-section sliders">
+          <label class="slider-wrap">
+            <div class="s-head"><span>Exploded View</span><strong id="explodeVal">55%</strong></div>
+            <input type="range" id="explodeSlider" min="0" max="100" step="1" value="55" />
+          </label>
+          <label class="slider-wrap">
+            <div class="s-head"><span>Liquid / Air Cooling</span><strong id="coolingVal">100%</strong></div>
+            <input type="range" id="coolingSlider" min="20" max="100" step="1" value="100" />
+          </label>
+        </div>
+
+        <div class="dock-section">
+          <span class="dock-label">Workload</span>
+          <div class="seg-group" id="workloadGroup">
+            <button class="seg active" data-mode="decode">Memory Wall</button>
+            <button class="seg" data-mode="prefill">Prefill Compute</button>
+            <button class="seg" data-mode="stress">740W Thermal Stress</button>
+          </div>
+        </div>
+
+        <div class="dock-section">
+          <span class="dock-label">Inspect Layer</span>
+          <div class="layer-group" id="layerGroup">
+            <button class="l-btn active" data-layer="all">All</button>
+            <button class="l-btn" data-layer="5">Fin Shroud</button>
+            <button class="l-btn" data-layer="4">Vapor Ch.</button>
+            <button class="l-btn" data-layer="3">Die &amp; HBM3</button>
+            <button class="l-btn" data-layer="2">Interposer</button>
+            <button class="l-btn" data-layer="1">BGA</button>
+            <button class="l-btn" data-layer="0">PCB / VRM</button>
+          </div>
+        </div>
       </div>
-      <div class="metric">
-        <span class="m-label">Core Clock</span>
-        <span class="m-val" id="telClock">1980 MHz</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Tensor MFU</span>
-        <span class="m-val accent" id="telMfu">4.5%</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">HBM3e Bus</span>
-        <span class="m-val cyan" id="telBw">3.05 TB/s</span>
-      </div>
-      <div class="metric">
-        <span class="m-label">Throttling</span>
-        <span class="m-val" id="telThrottle">0.0%</span>
-      </div>
-    </div>
-  </aside>
+    </section>
+  </div>
 
   <!-- Right Floating Layer Inspector -->
   <aside class="hud-right" id="inspectorCard">
@@ -80,52 +125,23 @@
     </div>
     <h2 id="inspectTitle">6-Layer CoWoS-S AI Package</h2>
     <p id="inspectDesc">
-      Drag the Explode slider below to separate the anodized fin array, copper vapor chamber,
-      6&times; 8-Hi HBM3e stacks, 132-SM Tensor Core silicon die, CoWoS-S interposer, BGA solder array, and SXM carrier PCB.
+      Drag the Explode slider to separate the anodized fin array, copper vapor chamber,
+      6&times; 8-Hi HBM3 stacks, 132-SM Tensor Core silicon die, CoWoS-S interposer, BGA solder array, and SXM carrier PCB.
     </p>
     <div class="insp-specs" id="inspectSpecs"></div>
   </aside>
 
-  <!-- Bottom Minimalist Control Dock -->
-  <footer class="hud-dock">
-    <div class="dock-section sliders">
-      <label class="slider-wrap">
-        <div class="s-head"><span>Exploded View</span><strong id="explodeVal">55%</strong></div>
-        <input type="range" id="explodeSlider" min="0" max="100" step="1" value="55" />
-      </label>
-      <label class="slider-wrap">
-        <div class="s-head"><span>Liquid / Air Cooling</span><strong id="coolingVal">100%</strong></div>
-        <input type="range" id="coolingSlider" min="20" max="100" step="1" value="100" />
-      </label>
-    </div>
-
-    <div class="dock-divider"></div>
-
-    <div class="dock-section">
-      <span class="dock-label">Workload</span>
-      <div class="seg-group" id="workloadGroup">
-        <button class="seg active" data-mode="decode">Memory Wall</button>
-        <button class="seg" data-mode="prefill">Prefill Compute</button>
-        <button class="seg" data-mode="stress">740W Thermal Stress</button>
-      </div>
-    </div>
-
-    <div class="dock-divider"></div>
-
-    <div class="dock-section">
-      <span class="dock-label">Inspect Layer</span>
-      <div class="layer-group" id="layerGroup">
-        <button class="l-btn active" data-layer="all">All</button>
-        <button class="l-btn" data-layer="5">Fin Shroud</button>
-        <button class="l-btn" data-layer="4">Vapor Ch.</button>
-        <button class="l-btn" data-layer="3">Die &amp; HBM3</button>
-        <button class="l-btn" data-layer="2">Interposer</button>
-        <button class="l-btn" data-layer="1">BGA</button>
-        <button class="l-btn" data-layer="0">PCB / VRM</button>
-      </div>
-    </div>
-  </footer>
-
+  <script>
+    (() => {
+      const card = document.getElementById("controlsCard");
+      const btn = document.getElementById("toggleControlsBtn");
+      if (!card || !btn) return;
+      btn.addEventListener("click", () => {
+        const collapsed = card.classList.toggle("collapsed");
+        btn.setAttribute("aria-expanded", String(!collapsed));
+      });
+    })();
+  </script>
   <script type="module" src="main.js"></script>
 </body>
 </html>
