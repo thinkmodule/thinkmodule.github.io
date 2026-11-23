@@ -1,1253 +1,1083 @@
 /**
- * ThinkModule Lab — 3D Loss Landscape, Hessian & Optimizer Studio Renderer (v1.0)
- * Custom zero-dependency 60 FPS 3D shaded mesh renderer, Painter's algorithm,
- * tangent-plane 3D gradient & Hessian eigenvectors, live 5-stage Backprop circuit,
- * clickable 2D contour heatmap, and log-scale convergence telemetry.
+ * ThinkModule — Module 03: Full-Viewport Three.js WebGL 3D Renderer & HUD Controller
+ * Renders custom GLSL iso-contour loss manifold, 3D coordinate cage, floor contour projection,
+ * tangent gradient/Hessian eigenvector arrows, local 2nd-order Taylor bowl, and live math HUD.
  */
-(function () {
-  "use strict";
 
-  const Engine = window.LossEngine;
-  if (!Engine) {
-    console.error("LossEngine not loaded.");
-    return;
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import {
+  DOMAIN,
+  MAX_STEPS,
+  OPTIMIZER_META,
+  LossEngine,
+  lossToY,
+  dLossToY
+} from './engine.js';
+
+const WORLD_SCALE = 2.15;
+const HALF_WORLD = DOMAIN * WORLD_SCALE;
+const GRID_SEG = 156;
+const TAYLOR_SEG = 18;
+const TAYLOR_RADIUS = 0.42;
+
+const toWorldX = (w1) => w1 * WORLD_SCALE;
+const toWorldZ = (w2) => -w2 * WORLD_SCALE;
+const fromWorldX = (x) => x / WORLD_SCALE;
+const fromWorldZ = (z) => -z / WORLD_SCALE;
+
+// Perceptual Turbo-Inspired Scientific Colormap (used identically in GLSL & 2D Contour)
+function colormapRGB(t) {
+  const x = Math.max(0, Math.min(1, t));
+  const stops = [
+    [0.00, 12, 34, 78],
+    [0.22, 16, 114, 148],
+    [0.45, 22, 178, 138],
+    [0.68, 228, 178, 42],
+    [0.86, 236, 98, 54],
+    [1.00, 250, 218, 170]
+  ];
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    if (x >= a[0] && x <= b[0]) {
+      const f = (x - a[0]) / (b[0] - a[0]);
+      return [
+        Math.round(a[1] + (b[1] - a[1]) * f),
+        Math.round(a[2] + (b[2] - a[2]) * f),
+        Math.round(a[3] + (b[3] - a[3]) * f)
+      ];
+    }
+  }
+  return [250, 218, 170];
+}
+
+// ============================================================================
+// 1. THREE.JS SCENE SETUP
+// ============================================================================
+const engine = new LossEngine();
+const viewport = document.getElementById('viewport');
+const labelLayer = document.getElementById('labelLayer');
+
+const scene = new THREE.Scene();
+scene.fog = new THREE.FogExp2(0x04070d, 0.024);
+
+const camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 0.1, 120);
+const DEFAULT_CAM = new THREE.Vector3(7.6, 6.9, 8.8);
+const DEFAULT_TARGET = new THREE.Vector3(0, 1.55, 0);
+camera.position.copy(DEFAULT_CAM);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance', alpha: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.15;
+viewport.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.copy(DEFAULT_TARGET);
+controls.enableDamping = true;
+controls.dampingFactor = 0.06;
+controls.maxPolarAngle = Math.PI * 0.485;
+controls.minDistance = 4.2;
+controls.maxDistance = 24;
+controls.autoRotate = true;
+controls.autoRotateSpeed = 0.45;
+
+// Studio Lights
+scene.add(new THREE.AmbientLight(0x9bb8e8, 0.55));
+const keyLight = new THREE.DirectionalLight(0xeef6ff, 1.45);
+keyLight.position.set(8, 14, 9);
+scene.add(keyLight);
+
+const rimLight = new THREE.DirectionalLight(0x38bdf8, 0.85);
+rimLight.position.set(-9, 7, -8);
+scene.add(rimLight);
+
+// Subtle Infinite Studio Grid
+const studioGrid = new THREE.GridHelper(34, 34, 0x162640, 0x0b1322);
+studioGrid.position.y = -0.02;
+scene.add(studioGrid);
+
+// ============================================================================
+// 2. CUSTOM GLSL 3D LOSS SURFACE WITH CRISP ISO-CONTOURS
+// ============================================================================
+const surfaceUniforms = {
+  uMinL: { value: 0.0 },
+  uMaxL: { value: 3.5 },
+  uWireframe: { value: 0.0 }
+};
+
+const surfaceVertexShader = /* glsl */ `
+  attribute float aLoss;
+  varying float vLoss;
+  varying vec3 vWorldPos;
+  varying vec3 vNormalDir;
+  varying vec2 vMathCoord;
+
+  void main() {
+    vLoss = aLoss;
+    vec4 wp = modelMatrix * vec4(position, 1.0);
+    vWorldPos = wp.xyz;
+    vNormalDir = normalize(mat3(modelMatrix) * normal);
+    vMathCoord = vec2(position.x / ${WORLD_SCALE.toFixed(2)}, -position.z / ${WORLD_SCALE.toFixed(2)});
+    gl_Position = projectionMatrix * viewMatrix * wp;
+  }
+`;
+
+const surfaceFragmentShader = /* glsl */ `
+  uniform float uMinL;
+  uniform float uMaxL;
+  varying float vLoss;
+  varying vec3 vWorldPos;
+  varying vec3 vNormalDir;
+  varying vec2 vMathCoord;
+
+  vec3 palette(float t) {
+    t = clamp(t, 0.0, 1.0);
+    vec3 c0 = vec3(0.047, 0.133, 0.306);
+    vec3 c1 = vec3(0.063, 0.447, 0.580);
+    vec3 c2 = vec3(0.086, 0.698, 0.541);
+    vec3 c3 = vec3(0.894, 0.698, 0.165);
+    vec3 c4 = vec3(0.925, 0.384, 0.212);
+    vec3 c5 = vec3(0.980, 0.855, 0.667);
+
+    if (t < 0.22) return mix(c0, c1, t / 0.22);
+    if (t < 0.45) return mix(c1, c2, (t - 0.22) / 0.23);
+    if (t < 0.68) return mix(c2, c3, (t - 0.45) / 0.23);
+    if (t < 0.86) return mix(c3, c4, (t - 0.68) / 0.18);
+    return mix(c4, c5, (t - 0.86) / 0.14);
   }
 
-  const $ = id => document.getElementById(id);
+  void main() {
+    float normL = clamp((log(1.0 + vLoss * 1.6) - log(1.0 + uMinL * 1.6)) /
+                        max(0.001, log(1.0 + uMaxL * 1.6) - log(1.0 + uMinL * 1.6)), 0.0, 1.0);
+    vec3 baseCol = palette(normL);
 
-  const state = {
-    landscapeId: Engine.PRESETS.saddle.landscapeId,
-    activePreset: "saddle",
-    start: [...Engine.PRESETS.saddle.start],
-    params: {
-      lr: Engine.PRESETS.saddle.lr,
-      beta1: Engine.PRESETS.saddle.beta1,
-      beta2: Engine.PRESETS.saddle.beta2,
-      wd: Engine.PRESETS.saddle.wd
-    },
-    inspectId: Engine.PRESETS.saddle.inspect,
-    enabled: { sgd: true, momentum: true, rmsprop: true, adamw: true },
-    optimizers: {},
-    stepCount: 0,
-    maxSteps: 220,
+    vec3 N = normalize(vNormalDir);
+    if (!gl_FrontFacing) N = -N;
+    vec3 V = normalize(cameraPosition - vWorldPos);
+    vec3 L1 = normalize(vec3(7.0, 14.0, 8.0));
+    vec3 L2 = normalize(vec3(-8.0, 6.0, -7.0));
 
-    // Playback & Animation
-    playing: true,
-    speedMult: 1.0,
-    stepAccum: 0,
-    animTime: 0,
-    lastTs: 0,
-    showVectors: true,
-    autoOrbit: false,
+    float diff1 = max(dot(N, L1), 0.0);
+    float diff2 = max(dot(N, L2), 0.0) * 0.35;
+    vec3 H = normalize(L1 + V);
+    float spec = pow(max(dot(N, H), 0.0), 48.0) * 0.32;
+    float fresnel = pow(1.0 - max(dot(N, V), 0.0), 3.0) * 0.26;
 
-    // 3D Camera
-    cam: {
-      yaw: -0.68,
-      pitch: 0.62,
-      zoom: 1.04,
-      dragging: false,
-      lastX: 0,
-      lastY: 0
-    },
+    // Anti-aliased iso-contour lines in log-loss space
+    float isoCoord = log(1.0 + vLoss * 2.2) * 7.5;
+    float isoDist = abs(fract(isoCoord - 0.5) - 0.5) / max(fwidth(isoCoord), 0.0005);
+    float isoLine = 1.0 - smoothstep(0.65, 1.55, isoDist);
 
-    // Precomputed surface mesh & contour bitmap cache
-    meshGrid: null,
-    contourBitmap: null
+    // Subtle w1/w2 coordinate grid every 0.5 units
+    vec2 gCoord = vMathCoord * 2.0;
+    vec2 gDist = abs(fract(gCoord - 0.5) - 0.5) / max(fwidth(gCoord), vec2(0.0005));
+    float gridLine = 1.0 - smoothstep(0.55, 1.4, min(gDist.x, gDist.y));
+
+    vec3 col = baseCol * (0.36 + 0.68 * diff1 + diff2) + vec3(spec) + vec3(0.22, 0.74, 0.97) * fresnel;
+    col = mix(col, vec3(0.95, 0.98, 1.0), isoLine * 0.32);
+    col = mix(col, vec3(0.75, 0.88, 1.0), gridLine * 0.12);
+
+    // Soft outer rim highlight
+    float edge = max(abs(vMathCoord.x), abs(vMathCoord.y));
+    float borderGlow = smoothstep(${(DOMAIN - 0.04).toFixed(2)}, ${DOMAIN.toFixed(2)}, edge);
+    col = mix(col, vec3(0.38, 0.78, 0.98), borderGlow * 0.45);
+
+    gl_FragColor = vec4(col, 0.93);
+  }
+`;
+
+const surfaceGeom = new THREE.PlaneGeometry(HALF_WORLD * 2, HALF_WORLD * 2, GRID_SEG, GRID_SEG);
+surfaceGeom.rotateX(-Math.PI / 2);
+const surfaceMat = new THREE.ShaderMaterial({
+  uniforms: surfaceUniforms,
+  vertexShader: surfaceVertexShader,
+  fragmentShader: surfaceFragmentShader,
+  side: THREE.DoubleSide,
+  transparent: true
+});
+const surfaceMesh = new THREE.Mesh(surfaceGeom, surfaceMat);
+scene.add(surfaceMesh);
+
+// ============================================================================
+// 3. FLOOR 2D CONTOUR PROJECTION + 3D COORDINATE CAGE
+// ============================================================================
+const floorCanvas = document.createElement('canvas');
+floorCanvas.width = 512;
+floorCanvas.height = 512;
+const floorCtx = floorCanvas.getContext('2d');
+const floorTex = new THREE.CanvasTexture(floorCanvas);
+floorTex.anisotropy = 8;
+
+const floorMesh = new THREE.Mesh(
+  new THREE.PlaneGeometry(HALF_WORLD * 2, HALF_WORLD * 2),
+  new THREE.MeshBasicMaterial({ map: floorTex, transparent: true, opacity: 0.72, depthWrite: false })
+);
+floorMesh.rotation.x = -Math.PI / 2;
+floorMesh.position.y = 0.006;
+scene.add(floorMesh);
+
+// Coordinate Cage Lines
+const cageGroup = new THREE.Group();
+scene.add(cageGroup);
+const axisLabels3D = [];
+
+function buildCoordinateCage() {
+  const matFrame = new THREE.LineBasicMaterial({ color: 0x2b4368, transparent: true, opacity: 0.7 });
+  const matAxis = new THREE.LineBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.85 });
+
+  const hTop = 5.4;
+  const pts = [
+    [-HALF_WORLD, 0, HALF_WORLD], [HALF_WORLD, 0, HALF_WORLD],
+    [HALF_WORLD, 0, HALF_WORLD], [HALF_WORLD, 0, -HALF_WORLD],
+    [HALF_WORLD, 0, -HALF_WORLD], [-HALF_WORLD, 0, -HALF_WORLD],
+    [-HALF_WORLD, 0, -HALF_WORLD], [-HALF_WORLD, 0, HALF_WORLD],
+    [-HALF_WORLD, 0, -HALF_WORLD], [-HALF_WORLD, hTop, -HALF_WORLD]
+  ];
+  const g = new THREE.BufferGeometry().setFromPoints(pts.map((p) => new THREE.Vector3(...p)));
+  cageGroup.add(new THREE.LineSegments(g, matFrame));
+
+  // Highlight primary axes (w1 front edge, w2 right edge, L vertical back-left)
+  const w1Axis = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-HALF_WORLD, 0.015, HALF_WORLD),
+    new THREE.Vector3(HALF_WORLD + 0.35, 0.015, HALF_WORLD)
+  ]);
+  const w2Axis = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(HALF_WORLD, 0.015, HALF_WORLD),
+    new THREE.Vector3(HALF_WORLD, 0.015, -HALF_WORLD - 0.35)
+  ]);
+  const lAxis = new THREE.BufferGeometry().setFromPoints([
+    new THREE.Vector3(-HALF_WORLD, 0, -HALF_WORLD),
+    new THREE.Vector3(-HALF_WORLD, hTop + 0.35, -HALF_WORLD)
+  ]);
+  cageGroup.add(new THREE.Line(w1Axis, matAxis));
+  cageGroup.add(new THREE.Line(w2Axis, matAxis));
+  cageGroup.add(new THREE.Line(lAxis, matAxis));
+
+  const addLabel = (text, pos, isTick = false) => {
+    const el = document.createElement('div');
+    el.className = isTick ? 'axis-tag tick' : 'axis-tag';
+    el.textContent = text;
+    labelLayer.appendChild(el);
+    axisLabels3D.push({ el, pos: new THREE.Vector3(...pos) });
   };
 
-  const dom = {
-    presetGrid: $("presetGrid"),
-    landscapeSelect: $("landscapeSelect"),
-    inspectSelect: $("inspectSelect"),
-    optToggleGrid: $("optToggleGrid"),
-    lrSlider: $("lrSlider"),
-    lrVal: $("lrVal"),
-    beta1Slider: $("beta1Slider"),
-    beta1Val: $("beta1Val"),
-    beta2Slider: $("beta2Slider"),
-    beta2Val: $("beta2Val"),
-    wdSlider: $("wdSlider"),
-    wdVal: $("wdVal"),
-    pytorchPreview: $("pytorchPreview"),
-    heroBadges: $("heroBadges"),
+  addLabel('w₁ (Weight 1) →', [0, 0.02, HALF_WORLD + 0.65], false);
+  addLabel('w₂ (Weight 2) →', [HALF_WORLD + 0.78, 0.02, 0], false);
+  addLabel('Loss L(w₁, w₂) ↑', [-HALF_WORLD - 0.25, hTop + 0.55, -HALF_WORLD], false);
 
-    playPauseBtn: $("playPauseBtn"),
-    stepOnceBtn: $("stepOnceBtn"),
-    resetRunBtn: $("resetRunBtn"),
-    speedCalmBtn: $("speedCalmBtn"),
-    speedNormalBtn: $("speedNormalBtn"),
-    speedFastBtn: $("speedFastBtn"),
-    vectorsBtn: $("vectorsBtn"),
-    autoOrbitBtn: $("autoOrbitBtn"),
-    resetCamBtn: $("resetCamBtn"),
+  for (const t of [-2, -1, 0, 1, 2]) {
+    const sign = t > 0 ? `+${t}` : `${t}`;
+    addLabel(sign, [toWorldX(t), 0.02, HALF_WORLD + 0.28], true);
+    addLabel(sign, [HALF_WORLD + 0.3, 0.02, toWorldZ(t)], true);
+  }
+  for (const lv of [0, 0.5, 1.5, 4.0]) {
+    addLabel(lv.toFixed(1), [-HALF_WORLD - 0.32, lossToY(lv), -HALF_WORLD], true);
+  }
+}
+buildCoordinateCage();
 
-    canvas3d: $("canvas3d"),
-    canvasFlow: $("canvasFlow"),
-    canvasContour: $("canvasContour"),
-    canvasLoss: $("canvasLoss"),
+// ============================================================================
+// 4. OPTIMIZER SPHERES, 3D TRAILS, FLOOR SHADOWS & VECTOR ARROWS
+// ============================================================================
+const optVisuals = {};
+const optIds = Object.keys(OPTIMIZER_META);
 
-    kpiStep: $("kpiStep"),
-    kpiLoss: $("kpiLoss"),
-    kpiLossSub: $("kpiLossSub"),
-    kpiGrad: $("kpiGrad"),
-    kpiKappa: $("kpiKappa"),
-    kpiCurvature: $("kpiCurvature"),
-    kpiCurvSub: $("kpiCurvSub"),
-    kpiWinner: $("kpiWinner"),
-    kpiWinnerSub: $("kpiWinnerSub"),
+for (const id of optIds) {
+  const meta = OPTIMIZER_META[id];
 
-    diagnosisBox: $("diagnosisBox"),
-    diagnosisTitle: $("diagnosisTitle"),
-    diagnosisBody: $("diagnosisBody"),
+  // Glowing PBR Sphere
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(0.145, 28, 28),
+    new THREE.MeshStandardMaterial({
+      color: meta.hex,
+      emissive: meta.hex,
+      emissiveIntensity: 0.55,
+      roughness: 0.22,
+      metalness: 0.18
+    })
+  );
+  scene.add(sphere);
 
-    flowSubLabel: $("flowSubLabel"),
-    contourHint: $("contourHint"),
-    contourCoords: $("contourCoords"),
-    lossMeta: $("lossMeta"),
+  // Halo Ring around inspected optimizer
+  const halo = new THREE.Mesh(
+    new THREE.RingGeometry(0.21, 0.26, 36),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.85 })
+  );
+  halo.rotation.x = -Math.PI / 2;
+  halo.visible = false;
+  scene.add(halo);
 
-    matrixInspectorBadge: $("matrixInspectorBadge"),
-    matTheta: $("matTheta"),
-    matHess: $("matHess"),
-    matEig: $("matEig"),
-    matUpdate: $("matUpdate")
+  // Pre-allocated 3D Trajectory Line
+  const maxPts = MAX_STEPS + 4;
+  const trailPos = new Float32Array(maxPts * 3);
+  const trailGeom = new THREE.BufferGeometry();
+  trailGeom.setAttribute('position', new THREE.BufferAttribute(trailPos, 3));
+  trailGeom.setDrawRange(0, 0);
+  const trailLine = new THREE.Line(
+    trailGeom,
+    new THREE.LineBasicMaterial({ color: meta.hex, transparent: true, opacity: 0.95 })
+  );
+  scene.add(trailLine);
+
+  // Floor Projection Trail
+  const floorPos = new Float32Array(maxPts * 3);
+  const floorGeom = new THREE.BufferGeometry();
+  floorGeom.setAttribute('position', new THREE.BufferAttribute(floorPos, 3));
+  floorGeom.setDrawRange(0, 0);
+  const floorLine = new THREE.Line(
+    floorGeom,
+    new THREE.LineBasicMaterial({ color: meta.hex, transparent: true, opacity: 0.42 })
+  );
+  scene.add(floorLine);
+
+  // Vertical coordinate drop-line to floor
+  const dropGeom = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const dropLine = new THREE.Line(
+    dropGeom,
+    new THREE.LineBasicMaterial({ color: meta.hex, transparent: true, opacity: 0.35 })
+  );
+  scene.add(dropLine);
+
+  // Projected HTML Label Pill
+  const pill = document.createElement('div');
+  pill.className = 'opt-pill';
+  pill.innerHTML = `<span class="swatch" style="background:${meta.color}"></span><span>${meta.name}</span>`;
+  labelLayer.appendChild(pill);
+
+  optVisuals[id] = { sphere, halo, trailGeom, trailPos, trailLine, floorGeom, floorPos, floorLine, dropGeom, dropLine, pill };
+}
+
+// 3D Differential Geometry Arrows (Negative Gradient + Hessian Eigenvectors e1, e2)
+const vectorGroup = new THREE.Group();
+scene.add(vectorGroup);
+
+const gradArrow = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x38bdf8, 0.28, 0.16);
+const eig1ArrowP = new THREE.ArrowHelper(new THREE.Vector3(1, 0, 0), new THREE.Vector3(), 1, 0x34d399, 0.22, 0.13);
+const eig1ArrowN = new THREE.ArrowHelper(new THREE.Vector3(-1, 0, 0), new THREE.Vector3(), 1, 0x34d399, 0.22, 0.13);
+const eig2ArrowP = new THREE.ArrowHelper(new THREE.Vector3(0, 0, 1), new THREE.Vector3(), 1, 0xfb7185, 0.22, 0.13);
+const eig2ArrowN = new THREE.ArrowHelper(new THREE.Vector3(0, 0, -1), new THREE.Vector3(), 1, 0xfb7185, 0.22, 0.13);
+vectorGroup.add(gradArrow, eig1ArrowP, eig1ArrowN, eig2ArrowP, eig2ArrowN);
+
+// Local 2nd-Order Taylor Paraboloid Patch around Inspected Optimizer
+const taylorGeom = new THREE.PlaneGeometry(TAYLOR_RADIUS * 2 * WORLD_SCALE, TAYLOR_RADIUS * 2 * WORLD_SCALE, TAYLOR_SEG, TAYLOR_SEG);
+taylorGeom.rotateX(-Math.PI / 2);
+const taylorMesh = new THREE.Mesh(
+  taylorGeom,
+  new THREE.MeshBasicMaterial({ color: 0x7dd3fc, wireframe: true, transparent: true, opacity: 0.32 })
+);
+scene.add(taylorMesh);
+
+// ============================================================================
+// 5. SURFACE & FLOOR CONTOUR REBUILD
+// ============================================================================
+let lossRange = { min: 0, max: 3.5 };
+
+function rebuildSurface() {
+  const pos = surfaceGeom.attributes.position;
+  const count = pos.count;
+  const losses = new Float32Array(count);
+
+  let minL = Infinity;
+  let maxL = -Infinity;
+
+  for (let i = 0; i < count; i++) {
+    const w1 = fromWorldX(pos.getX(i));
+    const w2 = fromWorldZ(pos.getZ(i));
+    const res = engine.scenario.eval(w1, w2);
+    losses[i] = res.loss;
+    if (res.loss < minL) minL = res.loss;
+    if (res.loss > maxL) maxL = res.loss;
+    pos.setY(i, lossToY(res.loss));
+  }
+
+  lossRange = { min: minL, max: maxL };
+  surfaceUniforms.uMinL.value = minL;
+  surfaceUniforms.uMaxL.value = maxL;
+  surfaceGeom.setAttribute('aLoss', new THREE.BufferAttribute(losses, 1));
+  pos.needsUpdate = true;
+  surfaceGeom.computeVertexNormals();
+
+  renderFloorContourTexture();
+}
+
+function renderContourToCanvas(ctx, width, height, drawAxes = false) {
+  const img = ctx.createImageData(width, height);
+  const data = img.data;
+  const logMin = Math.log(1 + lossRange.min * 1.6);
+  const logSpan = Math.max(0.001, Math.log(1 + lossRange.max * 1.6) - logMin);
+
+  for (let py = 0; py < height; py++) {
+    const w2 = DOMAIN - (py / (height - 1)) * (2 * DOMAIN);
+    for (let px = 0; px < width; px++) {
+      const w1 = -DOMAIN + (px / (width - 1)) * (2 * DOMAIN);
+      const L = engine.scenario.eval(w1, w2).loss;
+      const t = (Math.log(1 + L * 1.6) - logMin) / logSpan;
+      const [r, g, b] = colormapRGB(t);
+
+      // Subtle topographic contour rings
+      const iso = Math.log(1 + L * 2.2) * 7.5;
+      const frac = Math.abs((iso % 1 + 1) % 1 - 0.5);
+      const boost = frac < 0.045 ? 1.24 : 0.72;
+
+      const idx = (py * width + px) * 4;
+      data[idx] = Math.min(255, r * boost);
+      data[idx + 1] = Math.min(255, g * boost);
+      data[idx + 2] = Math.min(255, b * boost);
+      data[idx + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+
+  if (drawAxes) {
+    ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(width / 2, 0);
+    ctx.lineTo(width / 2, height);
+    ctx.moveTo(0, height / 2);
+    ctx.lineTo(width, height / 2);
+    ctx.stroke();
+  }
+}
+
+function renderFloorContourTexture() {
+  renderContourToCanvas(floorCtx, floorCanvas.width, floorCanvas.height, true);
+  floorTex.needsUpdate = true;
+  renderContourTabBase();
+}
+
+// ============================================================================
+// 6. SYNC 3D VISUALS & DIFFERENTIAL GEOMETRY
+// ============================================================================
+let showVectors = true;
+let showTaylor = true;
+
+function update3DOptimizers() {
+  for (const id of optIds) {
+    const opt = engine.optimizers[id];
+    const vis = optVisuals[id];
+    const isVisible = engine.active[id];
+
+    vis.sphere.visible = isVisible;
+    vis.trailLine.visible = isVisible;
+    vis.floorLine.visible = isVisible;
+    vis.dropLine.visible = isVisible;
+    vis.halo.visible = isVisible && id === engine.inspected;
+    vis.pill.style.display = isVisible ? 'flex' : 'none';
+
+    if (!isVisible) continue;
+
+    const x = toWorldX(opt.w1);
+    const z = toWorldZ(opt.w2);
+    const y = lossToY(opt.eval.loss) + 0.14;
+
+    vis.sphere.position.set(x, y, z);
+    vis.halo.position.set(x, y - 0.06, z);
+
+    // Update vertical drop-line to floor
+    const dAttr = vis.dropGeom.attributes.position;
+    dAttr.setXYZ(0, x, y - 0.12, z);
+    dAttr.setXYZ(1, x, 0.02, z);
+    dAttr.needsUpdate = true;
+
+    // Update 3D & floor trajectory lines
+    const len = opt.path.length;
+    for (let i = 0; i < len; i++) {
+      const p = opt.path[i];
+      const px = toWorldX(p.w1);
+      const pz = toWorldZ(p.w2);
+      const py = lossToY(p.loss) + 0.045;
+      vis.trailPos[i * 3] = px;
+      vis.trailPos[i * 3 + 1] = py;
+      vis.trailPos[i * 3 + 2] = pz;
+
+      vis.floorPos[i * 3] = px;
+      vis.floorPos[i * 3 + 1] = 0.024;
+      vis.floorPos[i * 3 + 2] = pz;
+    }
+    vis.trailGeom.setDrawRange(0, len);
+    vis.trailGeom.attributes.position.needsUpdate = true;
+    vis.floorGeom.setDrawRange(0, len);
+    vis.floorGeom.attributes.position.needsUpdate = true;
+
+    vis.pill.classList.toggle('inspected', id === engine.inspected);
+    vis.pill.classList.toggle('diverged', opt.diverged);
+    const labelText = opt.diverged ? `${OPTIMIZER_META[id].name} (DIV)` : OPTIMIZER_META[id].name;
+    vis.pill.lastElementChild.textContent = labelText;
+  }
+
+  updateGeometryOverlays();
+}
+
+function updateGeometryOverlays() {
+  const opt = engine.optimizers[engine.inspected];
+  const canShow = engine.active[engine.inspected] && !opt.diverged;
+
+  vectorGroup.visible = showVectors && canShow;
+  taylorMesh.visible = showTaylor && canShow;
+  if (!canShow) return;
+
+  const { w1, w2, eval: ev } = opt;
+  const origin = new THREE.Vector3(toWorldX(w1), lossToY(ev.loss) + 0.16, toWorldZ(w2));
+  const dydL = dLossToY(ev.loss);
+
+  // Tangent 3D direction helper for any 2D vector (dw1, dw2)
+  const toTangentDir = (dw1, dw2) => {
+    const dL = ev.g1 * dw1 + ev.g2 * dw2;
+    return new THREE.Vector3(dw1 * WORLD_SCALE, dydL * dL, -dw2 * WORLD_SCALE).normalize();
   };
 
-  // ============================================================================
-  // HELPERS & COLORMAPS
-  // ============================================================================
-
-  function setupCanvas(canvas, cssHeight) {
-    const rect = canvas.getBoundingClientRect();
-    const width = Math.max(Math.floor(rect.width), 280);
-    const height = cssHeight;
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    if (canvas.width !== Math.floor(width * dpr) || canvas.height !== Math.floor(height * dpr)) {
-      canvas.width = Math.floor(width * dpr);
-      canvas.height = Math.floor(height * dpr);
-    }
-    const ctx = canvas.getContext("2d");
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    return { ctx, width, height };
-  }
-
-  function roundRect(ctx, x, y, w, h, r) {
-    const rad = Math.min(r, w / 2, h / 2);
-    ctx.beginPath();
-    ctx.moveTo(x + rad, y);
-    ctx.arcTo(x + w, y, x + w, y + h, rad);
-    ctx.arcTo(x + w, y + h, x, y + h, rad);
-    ctx.arcTo(x, y + h, x, y, rad);
-    ctx.arcTo(x, y, x + w, y, rad);
-    ctx.closePath();
-  }
-
-  // Scientific Viridis-Cyan-Amber palette for height t in [0, 1]
-  function heightColorRGB(t) {
-    const u = Math.max(0, Math.min(1, t));
-    const stops = [
-      [0.00, [14, 38, 88]],
-      [0.24, [15, 118, 152]],
-      [0.52, [40, 178, 150]],
-      [0.78, [232, 168, 56]],
-      [1.00, [238, 86, 104]]
-    ];
-    for (let i = 0; i < stops.length - 1; i++) {
-      const [t0, c0] = stops[i];
-      const [t1, c1] = stops[i + 1];
-      if (u <= t1) {
-        const f = (u - t0) / Math.max(t1 - t0, 1e-6);
-        return [
-          Math.round(c0[0] + (c1[0] - c0[0]) * f),
-          Math.round(c0[1] + (c1[1] - c0[1]) * f),
-          Math.round(c0[2] + (c1[2] - c0[2]) * f)
-        ];
-      }
-    }
-    return [238, 86, 104];
-  }
-
-  function fmtSigned(v, dec) {
-    const d = dec === undefined ? 3 : dec;
-    if (!Number.isFinite(v)) return "NaN";
-    return (v >= 0 ? "+" : "") + v.toFixed(d);
-  }
-
-  // ============================================================================
-  // SURFACE MESH & CONTOUR CACHE
-  // ============================================================================
-
-  function rebuildSurfaceCaches() {
-    const land = Engine.getLandscape(state.landscapeId);
-    const N = 34;
-    const min = Engine.DOMAIN_MIN;
-    const max = Engine.DOMAIN_MAX;
-    const verts = [];
-    let zMin = Infinity, zMax = -Infinity;
-
-    for (let j = 0; j <= N; j++) {
-      const row = [];
-      const y = min + (j / N) * (max - min);
-      for (let i = 0; i <= N; i++) {
-        const x = min + (i / N) * (max - min);
-        const ev = land.eval(x, y);
-        const z = Engine.visualHeight(ev.L);
-        const df = Engine.visualHeightDeriv(ev.L);
-        // Exact surface normal for directional 3D lighting
-        const nx = -df * ev.gx;
-        const ny = -df * ev.gy;
-        const nz = 1.0;
-        const nLen = Math.hypot(nx, ny, nz) || 1;
-        if (z < zMin) zMin = z;
-        if (z > zMax) zMax = z;
-        row.push({ x, y, z, L: ev.L, nx: nx / nLen, ny: ny / nLen, nz: nz / nLen });
-      }
-      verts.push(row);
-    }
-    state.meshGrid = { N, verts, zMin, zMax: Math.max(zMax, zMin + 0.25) };
-
-    // Build crisp 180x180 offscreen contour heatmap canvas
-    const size = 180;
-    const off = document.createElement("canvas");
-    off.width = size;
-    off.height = size;
-    const octx = off.getContext("2d");
-    const img = octx.createImageData(size, size);
-    const data = img.data;
-
-    for (let py = 0; py < size; py++) {
-      const y = max - (py / (size - 1)) * (max - min);
-      for (let px = 0; px < size; px++) {
-        const x = min + (px / (size - 1)) * (max - min);
-        const ev = land.eval(x, y);
-        const z = Engine.visualHeight(ev.L);
-        const t = (z - zMin) / Math.max(zMax - zMin, 1e-4);
-        const rgb = heightColorRGB(t);
-
-        // Crisp elevation contour isolines
-        const iso = Math.abs(((t * 14) % 1) - 0.5);
-        const lineBoost = iso < 0.045 ? 0.32 : 0;
-
-        const idx = (py * size + px) * 4;
-        data[idx] = Math.min(255, Math.round(rgb[0] * 0.62 + lineBoost * 165));
-        data[idx + 1] = Math.min(255, Math.round(rgb[1] * 0.62 + lineBoost * 195));
-        data[idx + 2] = Math.min(255, Math.round(rgb[2] * 0.66 + lineBoost * 225));
-        data[idx + 3] = 255;
-      }
-    }
-    octx.putImageData(img, 0, 0);
-    state.contourBitmap = off;
-  }
-
-  // ============================================================================
-  // SIMULATION CONTROL
-  // ============================================================================
-
-  function resetSimulation() {
-    const land = Engine.getLandscape(state.landscapeId);
-    state.stepCount = 0;
-    state.stepAccum = 0;
-    state.optimizers = {};
-    ["sgd", "momentum", "rmsprop", "adamw"].forEach(id => {
-      state.optimizers[id] = Engine.createOptimizerState(id, state.start[0], state.start[1], land);
-    });
-    updateUIReadouts();
-    drawContourMap();
-    drawLossChart();
-  }
-
-  function advanceOneStep() {
-    if (state.stepCount >= state.maxSteps) return;
-    const land = Engine.getLandscape(state.landscapeId);
-    state.stepCount += 1;
-    ["sgd", "momentum", "rmsprop", "adamw"].forEach(id => {
-      if (state.enabled[id]) {
-        Engine.stepOptimizer(state.optimizers[id], land, state.params);
-      }
-    });
-    updateUIReadouts();
-    drawContourMap();
-    drawLossChart();
-  }
-
-  function syncSidebar() {
-    dom.landscapeSelect.value = state.landscapeId;
-    dom.inspectSelect.value = state.inspectId;
-    dom.lrSlider.value = String(state.params.lr);
-    dom.lrVal.textContent = state.params.lr.toFixed(3);
-    dom.lrVal.className = "field-val" + (state.params.lr >= 0.30 ? " warn" : "");
-
-    dom.beta1Slider.value = String(state.params.beta1);
-    dom.beta1Val.textContent = state.params.beta1.toFixed(2);
-    dom.beta2Slider.value = String(state.params.beta2);
-    dom.beta2Val.textContent = state.params.beta2.toFixed(3);
-    dom.wdSlider.value = String(state.params.wd);
-    dom.wdVal.textContent = state.params.wd.toFixed(3);
-
-    dom.presetGrid.querySelectorAll(".preset-btn").forEach(b => {
-      b.classList.toggle("active", b.dataset.preset === state.activePreset);
-    });
-    dom.optToggleGrid.querySelectorAll(".opt-chip").forEach(b => {
-      b.classList.toggle("active", !!state.enabled[b.dataset.opt]);
-    });
-
-    const optClass = state.inspectId === "adamw" ? "AdamW"
-      : state.inspectId === "rmsprop" ? "RMSprop"
-      : "SGD";
-    const extraArg = state.inspectId === "momentum"
-      ? `, momentum=<span class="num">${state.params.beta1.toFixed(2)}</span>`
-      : state.inspectId === "adamw"
-        ? `, betas=(<span class="num">${state.params.beta1.toFixed(2)}</span>,<span class="num">${state.params.beta2.toFixed(3)}</span>)`
-        : state.inspectId === "rmsprop"
-          ? `, alpha=<span class="num">${state.params.beta2.toFixed(3)}</span>`
-          : "";
-    dom.pytorchPreview.innerHTML =
-`<span class="cm"># Looks innocent in Python:</span>
-opt = torch.optim.<span class="fn">${optClass}</span>(
-  params, lr=<span class="num">${state.params.lr.toFixed(3)}</span>${extraArg}
-)
-loss.<span class="fn">backward</span>()   <span class="cm"># computes ∇L</span>
-opt.<span class="fn">step</span>()        <span class="cm"># updates θ</span>`;
-  }
-
-  function updateUIReadouts() {
-    const land = Engine.getLandscape(state.landscapeId);
-    const ins = state.optimizers[state.inspectId] || state.optimizers.adamw;
-    if (!ins) return;
-
-    const activeList = ["sgd", "momentum", "rmsprop", "adamw"]
-      .filter(id => state.enabled[id])
-      .map(id => state.optimizers[id]);
-
-    const sortedValid = activeList.filter(o => !o.diverged).sort((a, b) => a.L - b.L);
-    const winner = sortedValid[0] || ins;
-
-    // Hero badges
-    const badges = [];
-    badges.push(`<span class="badge">${land.shortName}</span>`);
-    badges.push(`<span class="badge ${ins.eig.regimeClass}">${ins.eig.regime} (&lambda;&sub1;=${fmtSigned(ins.eig.l1, 2)}, &lambda;&sub2;=${fmtSigned(ins.eig.l2, 2)})</span>`);
-    const anyDiv = activeList.some(o => o.diverged);
-    if (anyDiv) {
-      const divNames = activeList.filter(o => o.diverged).map(o => o.name).join(", ");
-      badges.push(`<span class="badge danger">⚠ Diverged: ${divNames}</span>`);
-    } else {
-      badges.push(`<span class="badge">Leader: ${winner.name} (${winner.L.toFixed(4)})</span>`);
-    }
-    dom.heroBadges.innerHTML = badges.join("");
-
-    // KPIs
-    dom.kpiStep.textContent = `${state.stepCount} / ${state.maxSteps}`;
-    dom.kpiLoss.textContent = ins.diverged ? "EXPLODED" : ins.L.toFixed(4);
-    dom.kpiLoss.className = "kpi-val " + (ins.diverged ? "red" : ins.L < 0.15 ? "green" : "cyan");
-    dom.kpiLossSub.textContent = `${ins.name} at (${ins.x.toFixed(2)}, ${ins.y.toFixed(2)})`;
-
-    dom.kpiGrad.textContent = ins.diverged ? "∞" : ins.gradNorm.toFixed(4);
-    dom.kpiGrad.className = "kpi-val " + (ins.diverged ? "red" : "violet");
-
-    dom.kpiKappa.textContent = ins.eig.kappa > 999 ? ">999" : ins.eig.kappa.toFixed(1);
-    dom.kpiKappa.className = "kpi-val " + (ins.eig.kappa > 12 ? "amber" : "cyan");
-
-    dom.kpiCurvature.textContent = ins.eig.regime;
-    dom.kpiCurvature.className = "kpi-val " + (ins.eig.regimeClass === "convex" ? "green" : ins.eig.regimeClass === "danger" ? "red" : "amber");
-    dom.kpiCurvSub.textContent = `det(H) = ${fmtSigned(ins.eig.det, 2)}`;
-
-    dom.kpiWinner.textContent = winner.name;
-    dom.kpiWinnerSub.textContent = winner.diverged ? "All diverged" : `L = ${winner.L.toFixed(4)}`;
-
-    // Diagnosis
-    const diag = Engine.buildDiagnosis(ins, activeList, land, state.params);
-    dom.diagnosisBox.className = `diagnosis ${diag.severity}`;
-    dom.diagnosisTitle.textContent = diag.title;
-    dom.diagnosisBody.textContent = diag.body;
-
-    // Labels & Live Matrices
-    dom.flowSubLabel.textContent = `Tracing ${ins.name} (Step ${ins.t}): θ → Forward/Hessian → Backprop ∇L → Moment State → θ_next`;
-    dom.matrixInspectorBadge.textContent = `Active: ${ins.name} (Step ${ins.t})`;
-    dom.contourCoords.textContent = `Start: (${state.start[0].toFixed(2)}, ${state.start[1].toFixed(2)})`;
-    dom.lossMeta.textContent = `Best: ${winner.name} (${winner.L.toFixed(4)})`;
-
-    dom.matTheta.textContent =
-`θ_t = [ ${fmtSigned(ins.x, 4)} ]   (w₁)
-      [ ${fmtSigned(ins.y, 4)} ]   (w₂)
-
-∇L  = [ ${fmtSigned(ins.gx, 4)} ]   (∂L/∂w₁)
-      [ ${fmtSigned(ins.gy, 4)} ]   (∂L/∂w₂)`;
-
-    dom.matHess.textContent =
-`H = [ ${fmtSigned(ins.hess.hxx, 3)}   ${fmtSigned(ins.hess.hxy, 3)} ]
-    [ ${fmtSigned(ins.hess.hxy, 3)}   ${fmtSigned(ins.hess.hyy, 3)} ]
-
-tr(H)  = ${fmtSigned(ins.eig.trace, 3)}
-det(H) = ${fmtSigned(ins.eig.det, 3)}`;
-
-    dom.matEig.textContent =
-`λ₁ = ${fmtSigned(ins.eig.l1, 3)}  e₁ = [${fmtSigned(ins.eig.e1[0], 2)}, ${fmtSigned(ins.eig.e1[1], 2)}]
-λ₂ = ${fmtSigned(ins.eig.l2, 3)}  e₂ = [${fmtSigned(ins.eig.e2[0], 2)}, ${fmtSigned(ins.eig.e2[1], 2)}]
-
-κ = |λ_max / λ_min| = ${ins.eig.kappa > 999 ? ">999" : ins.eig.kappa.toFixed(2)}
-Regime: ${ins.eig.regime}`;
-
-    const stateStr = ins.id === "adamw"
-      ? `m̂_t = [${fmtSigned(ins.mHatX, 3)}, ${fmtSigned(ins.mHatY, 3)}]\nv̂_t = [${ins.vHatX.toFixed(4)}, ${ins.vHatY.toFixed(4)}]`
-      : ins.id === "momentum"
-        ? `v_t = [${fmtSigned(ins.mx, 3)}, ${fmtSigned(ins.my, 3)}]\nβ₁  = ${state.params.beta1.toFixed(2)}`
-        : ins.id === "rmsprop"
-          ? `s_t = [${ins.vx.toFixed(4)}, ${ins.vy.toFixed(4)}]\nβ₂  = ${state.params.beta2.toFixed(3)}`
-          : `No memory state (stateless)\nη   = ${state.params.lr.toFixed(3)}`;
-
-    dom.matUpdate.textContent =
-`${stateStr}
-
-Δθ  = [ ${fmtSigned(ins.dx, 4)} ]
-      [ ${fmtSigned(ins.dy, 4)} ]`;
-  }
-
-  // ============================================================================
-  // CANVAS 1: INTERACTIVE 3D SHADED SURFACE + PAINTER'S ALGORITHM
-  // ============================================================================
-
-  function project3D(wx, wy, wz, width, height) {
-    const yaw = state.cam.yaw;
-    const pitch = state.cam.pitch;
-    const cy = Math.cos(yaw), sy = Math.sin(yaw);
-    const cp = Math.cos(pitch), sp = Math.sin(pitch);
-
-    // Center Z vertically around mid-mountain
-    const zc = wz - 0.85;
-
-    // Rotate around Z (yaw), then tilt by pitch
-    const rx = wx * cy - wy * sy;
-    const ry = wx * sy + wy * cy;
-
-    const camY = ry * cp - zc * sp;
-    const camZ = ry * sp + zc * cp;
-
-    const fov = Math.min(width, height) * 0.98 * state.cam.zoom;
-    const dist = 6.4;
-    const depth = dist - camY;
-    const scale = fov / Math.max(depth, 0.8);
-
-    return {
-      sx: width * 0.5 + rx * scale,
-      sy: height * 0.55 - camZ * scale,
-      depth,
-      scale
-    };
-  }
-
-  function draw3DScene() {
-    const grid = state.meshGrid;
-    if (!grid) return;
-
-    const { ctx, width, height } = setupCanvas(dom.canvas3d, 440);
-    ctx.clearRect(0, 0, width, height);
-
-    // Subtle cosmic backdrop radial
-    const bgGrad = ctx.createRadialGradient(width * 0.5, height * 0.45, 30, width * 0.5, height * 0.5, width * 0.65);
-    bgGrad.addColorStop(0, "rgba(22, 40, 76, 0.36)");
-    bgGrad.addColorStop(1, "rgba(5, 10, 20, 0)");
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(0, 0, width, height);
-
-    // 1. Draw 3D Base Floor Axes (w1, w2, L)
-    const min = Engine.DOMAIN_MIN, max = Engine.DOMAIN_MAX;
-    const baseZ = -0.05;
-    const c00 = project3D(min, min, baseZ, width, height);
-    const c10 = project3D(max, min, baseZ, width, height);
-    const c11 = project3D(max, max, baseZ, width, height);
-    const c01 = project3D(min, max, baseZ, width, height);
-    const zTop = project3D(min, min, 2.35, width, height);
-
-    ctx.strokeStyle = "rgba(56, 189, 248, 0.22)";
-    ctx.lineWidth = 1.1;
-    ctx.beginPath();
-    ctx.moveTo(c00.sx, c00.sy); ctx.lineTo(c10.sx, c10.sy);
-    ctx.lineTo(c11.sx, c11.sy); ctx.lineTo(c01.sx, c01.sy);
-    ctx.closePath();
-    ctx.stroke();
-
-    // Vertical Loss Z-axis
-    ctx.strokeStyle = "rgba(167, 139, 250, 0.32)";
-    ctx.beginPath();
-    ctx.moveTo(c00.sx, c00.sy);
-    ctx.lineTo(zTop.sx, zTop.sy);
-    ctx.stroke();
-
-    ctx.font = "600 10.5px ui-monospace, Menlo, monospace";
-    ctx.fillStyle = "#94a3b8";
-    ctx.textAlign = "center";
-    ctx.fillText("w₁ (+2.2)", c10.sx, c10.sy + 15);
-    ctx.fillText("w₂ (+2.2)", c01.sx, c01.sy + 15);
-    ctx.fillStyle = "#a78bfa";
-    ctx.fillText("Loss L(θ)", zTop.sx, zTop.sy - 8);
-
-    // 2. Project all mesh vertices once
-    const N = grid.N;
-    const proj = new Array(N + 1);
-    for (let j = 0; j <= N; j++) {
-      proj[j] = new Array(N + 1);
-      for (let i = 0; i <= N; i++) {
-        const v = grid.verts[j][i];
-        proj[j][i] = project3D(v.x, v.y, v.z, width, height);
-      }
-    }
-
-    // 3. Build quads and sort back-to-front (Painter's Algorithm)
-    const light = { x: 0.45, y: -0.45, z: 0.77 };
-    const quads = [];
-    const zSpan = Math.max(grid.zMax - grid.zMin, 0.1);
-
-    for (let j = 0; j < N; j++) {
-      for (let i = 0; i < N; i++) {
-        const p0 = proj[j][i];
-        const p1 = proj[j][i + 1];
-        const p2 = proj[j + 1][i + 1];
-        const p3 = proj[j + 1][i];
-        const avgDepth = (p0.depth + p1.depth + p2.depth + p3.depth) * 0.25;
-
-        const v0 = grid.verts[j][i];
-        const v1 = grid.verts[j][i + 1];
-        const v2 = grid.verts[j + 1][i + 1];
-        const v3 = grid.verts[j + 1][i];
-        const avgZ = (v0.z + v1.z + v2.z + v3.z) * 0.25;
-
-        const nx = (v0.nx + v1.nx + v2.nx + v3.nx) * 0.25;
-        const ny = (v0.ny + v1.ny + v2.ny + v3.ny) * 0.25;
-        const nz = (v0.nz + v1.nz + v2.nz + v3.nz) * 0.25;
-
-        const ndotl = Math.max(0, nx * light.x + ny * light.y + nz * light.z);
-        const shade = 0.44 + 0.62 * ndotl;
-        const t = (avgZ - grid.zMin) / zSpan;
-
-        quads.push({ p0, p1, p2, p3, avgDepth, t, shade });
-      }
-    }
-    quads.sort((a, b) => b.avgDepth - a.avgDepth);
-
-    // Draw shaded 3D surface quads
-    for (let k = 0; k < quads.length; k++) {
-      const q = quads[k];
-      const rgb = heightColorRGB(q.t);
-      const r = Math.min(255, Math.round(rgb[0] * q.shade));
-      const g = Math.min(255, Math.round(rgb[1] * q.shade));
-      const b = Math.min(255, Math.round(rgb[2] * q.shade));
-
-      ctx.beginPath();
-      ctx.moveTo(q.p0.sx, q.p0.sy);
-      ctx.lineTo(q.p1.sx, q.p1.sy);
-      ctx.lineTo(q.p2.sx, q.p2.sy);
-      ctx.lineTo(q.p3.sx, q.p3.sy);
-      ctx.closePath();
-
-      ctx.fillStyle = `rgba(${r},${g},${b},0.84)`;
-      ctx.fill();
-      ctx.strokeStyle = `rgba(10, 20, 38, 0.42)`;
-      ctx.lineWidth = 0.65;
-      ctx.stroke();
-    }
-
-    // 4. Global Minimum Beacon Star on Surface
-    const land = Engine.getLandscape(state.landscapeId);
-    if (land.globalMin) {
-      const [gx, gy] = land.globalMin;
-      const gev = land.eval(gx, gy);
-      const gp = project3D(gx, gy, Engine.visualHeight(gev.L) + 0.03, width, height);
-      const pulse = 5 + 2.5 * Math.sin(state.animTime * 3);
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.75)";
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.arc(gp.sx, gp.sy, pulse, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.fillStyle = "#e0f2fe";
-      ctx.font = "700 9.5px ui-monospace, Menlo, monospace";
-      ctx.textAlign = "center";
-      ctx.fillText("★ Global Min", gp.sx, gp.sy - 11);
-    }
-
-    // 5. Optimizer Glowing 3D Trails
-    const activeIds = ["sgd", "momentum", "rmsprop", "adamw"].filter(id => state.enabled[id]);
-    activeIds.forEach(id => {
-      const opt = state.optimizers[id];
-      if (!opt || opt.trail.length < 2) return;
-      ctx.save();
-      ctx.strokeStyle = opt.color;
-      ctx.lineWidth = id === state.inspectId ? 3.0 : 2.1;
-      ctx.shadowColor = opt.color;
-      ctx.shadowBlur = id === state.inspectId ? 10 : 5;
-      ctx.lineJoin = "round";
-      ctx.lineCap = "round";
-      ctx.beginPath();
-      for (let i = 0; i < opt.trail.length; i++) {
-        const pt = opt.trail[i];
-        const p = project3D(pt.x, pt.y, Engine.visualHeight(pt.L) + 0.035, width, height);
-        if (i === 0) ctx.moveTo(p.sx, p.sy);
-        else ctx.lineTo(p.sx, p.sy);
-      }
-      ctx.stroke();
-      ctx.restore();
-    });
-
-    // 6. 3D Tangent-Plane Gradient (-∇L) & Hessian Eigenvectors at Inspected Optimizer
-    const ins = state.optimizers[state.inspectId];
-    if (state.showVectors && ins && !ins.diverged && state.enabled[state.inspectId]) {
-      const zBase = Engine.visualHeight(ins.L) + 0.04;
-      const df = Engine.visualHeightDeriv(ins.L);
-      const pStart = project3D(ins.x, ins.y, zBase, width, height);
-
-      // Helper to project a 2D direction vector onto the 3D tangent plane
-      const draw3DArrow = (vx, vy, scaleLen, color, label, bothWays) => {
-        const dz = df * (ins.gx * vx + ins.gy * vy);
-        const len3d = Math.hypot(vx, vy, dz) || 1;
-        const ux = (vx / len3d) * scaleLen;
-        const uy = (vy / len3d) * scaleLen;
-        const uz = (dz / len3d) * scaleLen;
-
-        const pEnd = project3D(ins.x + ux, ins.y + uy, zBase + uz, width, height);
-        const pNeg = bothWays ? project3D(ins.x - ux, ins.y - uy, zBase - uz, width, height) : pStart;
-
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.fillStyle = color;
-        ctx.lineWidth = bothWays ? 2.0 : 2.8;
-        ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
-
-        ctx.beginPath();
-        ctx.moveTo(pNeg.sx, pNeg.sy);
-        ctx.lineTo(pEnd.sx, pEnd.sy);
-        ctx.stroke();
-
-        // Arrowhead
-        const ang = Math.atan2(pEnd.sy - pStart.sy, pEnd.sx - pStart.sx);
-        const head = 8;
-        ctx.beginPath();
-        ctx.moveTo(pEnd.sx, pEnd.sy);
-        ctx.lineTo(pEnd.sx - head * Math.cos(ang - 0.42), pEnd.sy - head * Math.sin(ang - 0.42));
-        ctx.lineTo(pEnd.sx - head * Math.cos(ang + 0.42), pEnd.sy - head * Math.sin(ang + 0.42));
-        ctx.closePath();
-        ctx.fill();
-
-        ctx.shadowBlur = 0;
-        ctx.font = "700 10px ui-monospace, Menlo, monospace";
-        ctx.textAlign = "left";
-        ctx.fillText(label, pEnd.sx + 6, pEnd.sy + 3);
-        ctx.restore();
-      };
-
-      // Hessian principal axes e1, e2 (green = positive curvature, coral = negative curvature)
-      const c1 = ins.eig.l1 >= 0 ? "#34d399" : "#f87171";
-      const c2 = ins.eig.l2 >= 0 ? "#34d399" : "#f87171";
-      draw3DArrow(ins.eig.e1[0], ins.eig.e1[1], 0.48, c1, `e₁(${fmtSigned(ins.eig.l1, 1)})`, true);
-      draw3DArrow(ins.eig.e2[0], ins.eig.e2[1], 0.42, c2, `e₂(${fmtSigned(ins.eig.l2, 1)})`, true);
-
-      // Negative Gradient Arrow (-∇L)
-      if (ins.gradNorm > 0.02) {
-        const gLen = Math.min(0.75, 0.25 + ins.gradNorm * 0.22);
-        draw3DArrow(-ins.gx / ins.gradNorm, -ins.gy / ins.gradNorm, gLen, "#38bdf8", "−∇L", false);
-      }
-    }
-
-    // 7. Depth-Sorted 3D Optimizer Spheres + Labels
-    const spheres = activeIds.map(id => {
-      const opt = state.optimizers[id];
-      const z = Engine.visualHeight(opt.L) + 0.05;
-      const p = project3D(opt.x, opt.y, z, width, height);
-      return { opt, p };
-    }).sort((a, b) => b.p.depth - a.p.depth);
-
-    spheres.forEach(({ opt, p }) => {
-      const isIns = opt.id === state.inspectId;
-      const rad = isIns ? 8.5 : 6.8;
-
-      // Halo ring for inspected optimizer
-      if (isIns) {
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.85)";
-        ctx.lineWidth = 1.6;
-        ctx.beginPath();
-        ctx.arc(p.sx, p.sy, rad + 4, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-
-      // 3D glossy sphere shading
-      const sg = ctx.createRadialGradient(p.sx - rad * 0.3, p.sy - rad * 0.35, 1, p.sx, p.sy, rad);
-      sg.addColorStop(0, "#ffffff");
-      sg.addColorStop(0.35, opt.color);
-      sg.addColorStop(1, "#0b1222");
-
-      ctx.fillStyle = sg;
-      ctx.beginPath();
-      ctx.arc(p.sx, p.sy, rad, 0, Math.PI * 2);
-      ctx.fill();
-
-      // Label pill
-      const tag = opt.diverged ? `${opt.name} ✕` : opt.name;
-      ctx.font = `${isIns ? "700" : "600"} 10px ui-monospace, Menlo, monospace`;
-      const tw = ctx.measureText(tag).width + 10;
-      const lx = p.sx - tw / 2;
-      const ly = p.sy - rad - 21;
-      roundRect(ctx, lx, ly, tw, 15, 4);
-      ctx.fillStyle = "rgba(5, 10, 20, 0.82)";
-      ctx.fill();
-      ctx.strokeStyle = opt.color;
-      ctx.lineWidth = 1;
-      ctx.stroke();
-
-      ctx.fillStyle = "#f8fafc";
-      ctx.textAlign = "center";
-      ctx.fillText(tag, p.sx, ly + 11);
-    });
-  }
-
-  // ============================================================================
-  // CANVAS 2: LIVE 5-STAGE "FROM-HERE-TO-THERE" MATHEMATICAL PIPELINE
-  // ============================================================================
-
-  function drawMathFlow() {
-    const ins = state.optimizers[state.inspectId];
-    if (!ins) return;
-
-    const { ctx, width, height } = setupCanvas(dom.canvasFlow, 215);
-    ctx.clearRect(0, 0, width, height);
-
-    const padX = 16;
-    const gap = Math.max(18, Math.min(34, width * 0.028));
-    const boxW = (width - padX * 2 - gap * 4) / 5;
-    const boxY = 26;
-    const boxH = 128;
-
-    const stageStateLine = ins.id === "adamw"
-      ? [`m̂: ${fmtSigned(ins.mHatX, 2)}, ${fmtSigned(ins.mHatY, 2)}`, `√v̂: ${Math.sqrt(ins.vHatX).toFixed(2)}, ${Math.sqrt(ins.vHatY).toFixed(2)}`]
-      : ins.id === "momentum"
-        ? [`v_t: ${fmtSigned(ins.mx, 2)}, ${fmtSigned(ins.my, 2)}`, `β₁ = ${state.params.beta1.toFixed(2)}`]
-        : ins.id === "rmsprop"
-          ? [`√s: ${Math.sqrt(ins.vx).toFixed(2)}, ${Math.sqrt(ins.vy).toFixed(2)}`, `β₂ = ${state.params.beta2.toFixed(3)}`]
-          : [`Stateless SGD`, `η = ${state.params.lr.toFixed(3)}`];
-
-    const stages = [
-      {
-        num: "01",
-        title: "WEIGHTS θ_t",
-        color: "#38bdf8",
-        lines: [`w₁ = ${fmtSigned(ins.prevX, 3)}`, `w₂ = ${fmtSigned(ins.prevY, 3)}`, `Step t = ${ins.t}`]
-      },
-      {
-        num: "02",
-        title: "FORWARD & HESS",
-        color: "#a78bfa",
-        lines: [`L = ${ins.L.toFixed(4)}`, `λ₁ = ${fmtSigned(ins.eig.l1, 2)}`, `λ₂ = ${fmtSigned(ins.eig.l2, 2)}`]
-      },
-      {
-        num: "03",
-        title: "BACKPROP ∇L",
-        color: "#fbbf24",
-        lines: [`∂w₁ = ${fmtSigned(ins.gx, 3)}`, `∂w₂ = ${fmtSigned(ins.gy, 3)}`, `‖∇L‖ = ${ins.gradNorm.toFixed(3)}`]
-      },
-      {
-        num: "04",
-        title: `${ins.name.toUpperCase()} STATE`,
-        color: ins.color,
-        lines: [stageStateLine[0], stageStateLine[1], `WD λ = ${state.params.wd.toFixed(3)}`]
-      },
-      {
-        num: "05",
-        title: "UPDATE θ_t+1",
-        color: "#34d399",
-        lines: [`Δw₁ = ${fmtSigned(ins.dx, 3)}`, `Δw₂ = ${fmtSigned(ins.dy, 3)}`, `→ (${ins.x.toFixed(2)}, ${ins.y.toFixed(2)})`]
-      }
-    ];
-
-    // Draw connectors + animated calm pulses between boxes
-    const midY = boxY + boxH / 2;
-    for (let i = 0; i < 4; i++) {
-      const x1 = padX + i * (boxW + gap) + boxW;
-      const x2 = x1 + gap;
-      ctx.strokeStyle = "rgba(56, 189, 248, 0.38)";
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      ctx.moveTo(x1, midY);
-      ctx.lineTo(x2, midY);
-      ctx.stroke();
-
-      // Arrowhead
-      ctx.fillStyle = "#38bdf8";
-      ctx.beginPath();
-      ctx.moveTo(x2, midY);
-      ctx.lineTo(x2 - 6, midY - 4);
-      ctx.lineTo(x2 - 6, midY + 4);
-      ctx.closePath();
-      ctx.fill();
-
-      // Animated data pulse traveling cleanly left -> right
-      const pPhase = (state.animTime * 0.65 - i * 0.22) % 1;
-      const tNorm = pPhase < 0 ? pPhase + 1 : pPhase;
-      const px = x1 + tNorm * (gap - 6);
-      ctx.fillStyle = stages[i].color;
-      ctx.shadowColor = stages[i].color;
-      ctx.shadowBlur = 8;
-      ctx.beginPath();
-      ctx.arc(px, midY, 3.6, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    }
-
-    // Feedback epoch loop arc along bottom (Stage 5 -> Stage 1)
-    const loopStartX = padX + 4 * (boxW + gap) + boxW * 0.5;
-    const loopEndX = padX + boxW * 0.5;
-    const loopY = boxY + boxH + 30;
-    ctx.strokeStyle = "rgba(52, 211, 153, 0.35)";
-    ctx.lineWidth = 1.6;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    ctx.moveTo(loopStartX, boxY + boxH);
-    ctx.lineTo(loopStartX, loopY);
-    ctx.lineTo(loopEndX, loopY);
-    ctx.lineTo(loopEndX, boxY + boxH + 4);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Moving feedback packet along return line
-    const retT = (state.animTime * 0.32) % 1;
-    const retX = loopStartX - retT * (loopStartX - loopEndX);
-    ctx.fillStyle = "#34d399";
-    ctx.beginPath();
-    ctx.arc(retX, loopY, 3.2, 0, Math.PI * 2);
-    ctx.fill();
-
-    ctx.fillStyle = "#7f92b0";
-    ctx.font = "600 10px ui-monospace, Menlo, monospace";
-    ctx.textAlign = "center";
-    ctx.fillText("Feedback Loop: Updated weights θ_{t+1} feed into next Forward Pass", width / 2, loopY + 18);
-
-    // Draw the 5 Stage Cards
-    stages.forEach((st, i) => {
-      const bx = padX + i * (boxW + gap);
-      roundRect(ctx, bx, boxY, boxW, boxH, 9);
-      ctx.fillStyle = "#0b1426";
-      ctx.fill();
-      ctx.strokeStyle = st.color;
-      ctx.lineWidth = 1.3;
-      ctx.stroke();
-
-      // Header bar
-      ctx.fillStyle = st.color;
-      ctx.font = "700 10px ui-monospace, Menlo, monospace";
-      ctx.textAlign = "left";
-      ctx.fillText(`${st.num} • ${st.title}`, bx + 10, boxY + 21);
-
-      ctx.strokeStyle = "rgba(30, 47, 82, 0.85)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      ctx.moveTo(bx + 8, boxY + 30);
-      ctx.lineTo(bx + boxW - 8, boxY + 30);
-      ctx.stroke();
-
-      ctx.fillStyle = "#e2e8f0";
-      ctx.font = "11px ui-monospace, Menlo, monospace";
-      st.lines.forEach((ln, li) => {
-        ctx.fillStyle = li === 2 ? "#94a3b8" : "#e6eefc";
-        ctx.fillText(ln, bx + 10, boxY + 54 + li * 24);
-      });
-    });
-  }
-
-  // ============================================================================
-  // CANVAS 3: CLICKABLE 2D CONTOUR MAP + VECTOR FIELD
-  // ============================================================================
-
-  function drawContourMap() {
-    if (!state.contourBitmap) return;
-    const { ctx, width, height } = setupCanvas(dom.canvasContour, 330);
-    ctx.clearRect(0, 0, width, height);
-
-    const pad = { top: 18, right: 20, bottom: 34, left: 42 };
-    const plotW = width - pad.left - pad.right;
-    const plotH = height - pad.top - pad.bottom;
-    const min = Engine.DOMAIN_MIN, max = Engine.DOMAIN_MAX;
-
-    const xOf = wx => pad.left + ((wx - min) / (max - min)) * plotW;
-    const yOf = wy => pad.top + ((max - wy) / (max - min)) * plotH;
-
-    // Draw cached contour heatmap
-    ctx.drawImage(state.contourBitmap, pad.left, pad.top, plotW, plotH);
-
-    // Subtle negative-gradient vector field arrows
-    const land = Engine.getLandscape(state.landscapeId);
-    ctx.strokeStyle = "rgba(226, 232, 240, 0.25)";
-    ctx.lineWidth = 1;
-    const step = 0.55;
-    for (let y = -1.65; y <= 1.66; y += step) {
-      for (let x = -1.65; x <= 1.66; x += step) {
-        const ev = land.eval(x, y);
-        const gn = Math.hypot(ev.gx, ev.gy);
-        if (gn < 0.05) continue;
-        const len = Math.min(13, 5 + gn * 2.5);
-        const sx = xOf(x), sy = yOf(y);
-        const ux = (-ev.gx / gn) * len;
-        const uy = (ev.gy / gn) * len; // Canvas Y inverted
-        ctx.beginPath();
-        ctx.moveTo(sx, sy);
-        ctx.lineTo(sx + ux, sy + uy);
-        ctx.stroke();
-      }
-    }
-
-    // Start cross marker
-    const stX = xOf(state.start[0]), stY = yOf(state.start[1]);
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(stX - 6, stY); ctx.lineTo(stX + 6, stY);
-    ctx.moveTo(stX, stY - 6); ctx.lineTo(stX, stY + 6);
-    ctx.stroke();
-
-    // Optimizer paths & heads
-    ["sgd", "momentum", "rmsprop", "adamw"].forEach(id => {
-      if (!state.enabled[id]) return;
-      const opt = state.optimizers[id];
-      if (!opt) return;
-      ctx.strokeStyle = opt.color;
-      ctx.lineWidth = id === state.inspectId ? 2.6 : 1.9;
-      ctx.beginPath();
-      opt.trail.forEach((pt, idx) => {
-        const px = xOf(pt.x), py = yOf(pt.y);
-        if (idx === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
-
-      const hx = xOf(opt.x), hy = yOf(opt.y);
-      ctx.fillStyle = opt.color;
-      ctx.beginPath();
-      ctx.arc(hx, hy, id === state.inspectId ? 5.5 : 4.2, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#050a14";
-      ctx.lineWidth = 1.2;
-      ctx.stroke();
-    });
-
-    // Border & Axis ticks
-    ctx.strokeStyle = "#2c4373";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(pad.left, pad.top, plotW, plotH);
-
-    ctx.fillStyle = "#8ea2c4";
-    ctx.font = "10px ui-monospace, Menlo, monospace";
-    ctx.textAlign = "center";
-    [-2, -1, 0, 1, 2].forEach(t => {
-      ctx.fillText(String(t), xOf(t), pad.top + plotH + 15);
-    });
-    ctx.fillText("Weight w₁", pad.left + plotW / 2, height - 4);
-
-    ctx.textAlign = "right";
-    [-2, -1, 0, 1, 2].forEach(t => {
-      ctx.fillText(String(t), pad.left - 7, yOf(t) + 3);
-    });
-  }
-
-  // ============================================================================
-  // CANVAS 4: LOG-SCALE LOSS CONVERGENCE CHART
-  // ============================================================================
-
-  function drawLossChart() {
-    const { ctx, width, height } = setupCanvas(dom.canvasLoss, 330);
-    ctx.clearRect(0, 0, width, height);
-
-    const pad = { top: 28, right: 20, bottom: 38, left: 56 };
-    const plotW = width - pad.left - pad.right;
-    const plotH = height - pad.top - pad.bottom;
-
-    const activeOpts = ["sgd", "momentum", "rmsprop", "adamw"]
-      .filter(id => state.enabled[id])
-      .map(id => state.optimizers[id])
-      .filter(Boolean);
-
-    let minL = 0.01, maxL = 4.0;
-    activeOpts.forEach(o => {
-      o.lossHistory.forEach(v => {
-        if (Number.isFinite(v) && v > 0) {
-          if (v < minL) minL = Math.max(0.005, v * 0.8);
-          if (v > maxL) maxL = Math.min(60, v * 1.2);
-        }
-      });
-    });
-
-    const logMin = Math.log10(minL);
-    const logMax = Math.log10(maxL);
-    const xSpan = Math.max(30, state.stepCount, 40);
-
-    const xOf = step => pad.left + (step / xSpan) * plotW;
-    const yOf = val => {
-      const clamped = Math.max(minL, Math.min(maxL, Number.isFinite(val) ? val : maxL));
-      return pad.top + plotH * (1 - (Math.log10(clamped) - logMin) / Math.max(logMax - logMin, 0.2));
-    };
-
-    // Grid
-    ctx.strokeStyle = "rgba(30, 47, 82, 0.65)";
-    ctx.lineWidth = 1;
-    ctx.font = "10px ui-monospace, Menlo, monospace";
-    ctx.fillStyle = "#7f92b0";
-
-    const yLevels = [0.01, 0.05, 0.1, 0.5, 1, 5, 20].filter(v => v >= minL * 0.9 && v <= maxL * 1.05);
-    yLevels.forEach(v => {
-      const y = yOf(v);
-      ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(pad.left + plotW, y); ctx.stroke();
-      ctx.textAlign = "right";
-      ctx.fillText(v < 1 ? v.toFixed(2) : String(v), pad.left - 7, y + 3);
-    });
-
-    for (let g = 0; g <= 4; g++) {
-      const s = Math.round((xSpan * g) / 4);
-      const x = xOf(s);
-      ctx.beginPath(); ctx.moveTo(x, pad.top); ctx.lineTo(x, pad.top + plotH); ctx.stroke();
-      ctx.textAlign = "center";
-      ctx.fillText(String(s), x, pad.top + plotH + 15);
-    }
-
-    // Curves
-    activeOpts.forEach(opt => {
-      if (opt.lossHistory.length < 2) return;
-      ctx.strokeStyle = opt.color;
-      ctx.lineWidth = opt.id === state.inspectId ? 2.8 : 2.0;
-      ctx.beginPath();
-      opt.lossHistory.forEach((v, idx) => {
-        const px = xOf(idx), py = yOf(v);
-        if (idx === 0) ctx.moveTo(px, py);
-        else ctx.lineTo(px, py);
-      });
-      ctx.stroke();
-    });
-
-    // Legend top
-    let legX = pad.left;
-    activeOpts.forEach(opt => {
-      ctx.fillStyle = opt.color;
-      ctx.fillRect(legX, 10, 10, 4);
-      ctx.fillStyle = "#cbd5e1";
-      ctx.textAlign = "left";
-      const label = opt.diverged ? `${opt.name} (DIV)` : `${opt.name} ${opt.L.toFixed(2)}`;
-      ctx.fillText(label, legX + 14, 15);
-      legX += ctx.measureText(label).width + 26;
-    });
-
-    // Axis titles
-    ctx.fillStyle = "#94a3b8";
-    ctx.textAlign = "center";
-    ctx.fillText("Training Iteration (Step t)", pad.left + plotW / 2, height - 6);
-  }
-
-  // ============================================================================
-  // MAIN 60 FPS ANIMATION LOOP
-  // ============================================================================
-
-  function tick(ts) {
-    if (!state.lastTs) state.lastTs = ts;
-    const dt = Math.min((ts - state.lastTs) / 1000, 0.05);
-    state.lastTs = ts;
-    state.animTime += dt;
-
-    if (state.autoOrbit && !state.cam.dragging) {
-      state.cam.yaw += dt * 0.28;
-    }
-
-    if (state.playing && state.stepCount < state.maxSteps) {
-      // Calm default: ~4.5 optimization steps/sec so human eyes can follow every bounce
-      const stepsPerSec = 4.5 * state.speedMult;
-      state.stepAccum += dt * stepsPerSec;
-      while (state.stepAccum >= 1 && state.stepCount < state.maxSteps) {
-        state.stepAccum -= 1;
-        advanceOneStep();
-      }
-    }
-
-    draw3DScene();
-    drawMathFlow();
-    requestAnimationFrame(tick);
-  }
-
-  // ============================================================================
-  // EVENT BINDINGS & INIT
-  // ============================================================================
-
-  function applyPreset(key) {
-    const p = Engine.PRESETS[key];
-    if (!p) return;
-    state.activePreset = key;
-    state.landscapeId = p.landscapeId;
-    state.start = [...p.start];
-    state.params = { lr: p.lr, beta1: p.beta1, beta2: p.beta2, wd: p.wd };
-    state.inspectId = p.inspect;
-    state.enabled = { sgd: true, momentum: true, rmsprop: true, adamw: true };
-    state.playing = true;
-    dom.playPauseBtn.innerHTML = "&#9646;&#9646; Pause";
-    syncSidebar();
-    rebuildSurfaceCaches();
-    resetSimulation();
-  }
-
-  function bindEvents() {
-    dom.presetGrid.addEventListener("click", evt => {
-      const btn = evt.target.closest(".preset-btn");
-      if (btn) applyPreset(btn.dataset.preset);
-    });
-
-    dom.landscapeSelect.addEventListener("change", () => {
-      state.activePreset = null;
-      state.landscapeId = dom.landscapeSelect.value;
-      const land = Engine.getLandscape(state.landscapeId);
-      state.start = [...land.defaultStart];
-      syncSidebar();
-      rebuildSurfaceCaches();
-      resetSimulation();
-    });
-
-    dom.inspectSelect.addEventListener("change", () => {
-      state.inspectId = dom.inspectSelect.value;
-      state.enabled[state.inspectId] = true;
-      syncSidebar();
-      updateUIReadouts();
-      drawContourMap();
-      drawLossChart();
-    });
-
-    dom.optToggleGrid.addEventListener("click", evt => {
-      const btn = evt.target.closest(".opt-chip");
-      if (!btn) return;
-      const id = btn.dataset.opt;
-      const activeCount = Object.values(state.enabled).filter(Boolean).length;
-      if (state.enabled[id] && activeCount <= 1) return; // keep at least 1 active
-      state.enabled[id] = !state.enabled[id];
-      if (!state.enabled[state.inspectId]) {
-        state.inspectId = Object.keys(state.enabled).find(k => state.enabled[k]);
-      }
-      syncSidebar();
-      updateUIReadouts();
-      drawContourMap();
-      drawLossChart();
-    });
-
-    const bindSlider = (el, key) => {
-      el.addEventListener("input", () => {
-        state.activePreset = null;
-        state.params[key] = parseFloat(el.value);
-        syncSidebar();
-        resetSimulation();
-      });
-    };
-    bindSlider(dom.lrSlider, "lr");
-    bindSlider(dom.beta1Slider, "beta1");
-    bindSlider(dom.beta2Slider, "beta2");
-    bindSlider(dom.wdSlider, "wd");
-
-    // Playback toolbar
-    dom.playPauseBtn.addEventListener("click", () => {
-      state.playing = !state.playing;
-      dom.playPauseBtn.innerHTML = state.playing ? "&#9646;&#9646; Pause" : "&#9654; Play";
-    });
-
-    dom.stepOnceBtn.addEventListener("click", () => {
-      state.playing = false;
-      dom.playPauseBtn.innerHTML = "&#9654; Play";
-      advanceOneStep();
-    });
-
-    dom.resetRunBtn.addEventListener("click", () => {
-      resetSimulation();
-    });
-
-    [dom.speedCalmBtn, dom.speedNormalBtn, dom.speedFastBtn].forEach(btn => {
-      btn.addEventListener("click", () => {
-        state.speedMult = parseFloat(btn.dataset.speed);
-        [dom.speedCalmBtn, dom.speedNormalBtn, dom.speedFastBtn].forEach(b => b.classList.toggle("active", b === btn));
-      });
-    });
-
-    dom.vectorsBtn.addEventListener("click", () => {
-      state.showVectors = !state.showVectors;
-      dom.vectorsBtn.classList.toggle("active", state.showVectors);
-      dom.vectorsBtn.textContent = state.showVectors ? "3D Vectors: ON" : "3D Vectors: OFF";
-    });
-
-    dom.autoOrbitBtn.addEventListener("click", () => {
-      state.autoOrbit = !state.autoOrbit;
-      dom.autoOrbitBtn.classList.toggle("active", state.autoOrbit);
-    });
-
-    dom.resetCamBtn.addEventListener("click", () => {
-      state.cam.yaw = -0.68;
-      state.cam.pitch = 0.62;
-      state.cam.zoom = 1.04;
-    });
-
-    // 3D Orbit Pointer Drag & Wheel Zoom
-    dom.canvas3d.addEventListener("pointerdown", evt => {
-      state.cam.dragging = true;
-      state.cam.lastX = evt.clientX;
-      state.cam.lastY = evt.clientY;
-      dom.canvas3d.setPointerCapture(evt.pointerId);
-    });
-
-    dom.canvas3d.addEventListener("pointermove", evt => {
-      if (!state.cam.dragging) return;
-      const dx = evt.clientX - state.cam.lastX;
-      const dy = evt.clientY - state.cam.lastY;
-      state.cam.lastX = evt.clientX;
-      state.cam.lastY = evt.clientY;
-      state.cam.yaw += dx * 0.0085;
-      state.cam.pitch = Math.max(0.18, Math.min(1.42, state.cam.pitch + dy * 0.0075));
-    });
-
-    const endDrag = () => { state.cam.dragging = false; };
-    dom.canvas3d.addEventListener("pointerup", endDrag);
-    dom.canvas3d.addEventListener("pointercancel", endDrag);
-
-    dom.canvas3d.addEventListener("wheel", evt => {
-      evt.preventDefault();
-      const factor = evt.deltaY > 0 ? 0.93 : 1.07;
-      state.cam.zoom = Math.max(0.65, Math.min(1.85, state.cam.zoom * factor));
-    }, { passive: false });
-
-    // Clickable 2D Contour Map -> Drop New Start Point
-    dom.canvasContour.addEventListener("click", evt => {
-      const rect = dom.canvasContour.getBoundingClientRect();
-      const pad = { top: 18, right: 20, bottom: 34, left: 42 };
-      const plotW = rect.width - pad.left - pad.right;
-      const plotH = 330 - pad.top - pad.bottom;
-      const fx = (evt.clientX - rect.left - pad.left) / plotW;
-      const fy = (evt.clientY - rect.top - pad.top) / plotH;
-      if (fx < 0 || fx > 1 || fy < 0 || fy > 1) return;
-
-      const min = Engine.DOMAIN_MIN, max = Engine.DOMAIN_MAX;
-      const wx = min + fx * (max - min);
-      const wy = max - fy * (max - min);
-      state.activePreset = null;
-      state.start = [wx, wy];
-      syncSidebar();
-      resetSimulation();
-    });
-
-    let resizeTimer = null;
-    window.addEventListener("resize", () => {
-      if (resizeTimer) cancelAnimationFrame(resizeTimer);
-      resizeTimer = requestAnimationFrame(() => {
-        drawContourMap();
-        drawLossChart();
-      });
-    });
-  }
-
-  function init() {
-    dom.landscapeSelect.innerHTML = Engine.LANDSCAPES.map(
-      l => `<option value="${l.id}">${l.name}</option>`
-    ).join("");
-    syncSidebar();
-    rebuildSurfaceCaches();
-    bindEvents();
-    resetSimulation();
-    requestAnimationFrame(tick);
-  }
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
+  // 1. Negative Gradient Arrow (-∇L)
+  if (ev.gradNorm > 1e-5) {
+    gradArrow.visible = true;
+    gradArrow.position.copy(origin);
+    gradArrow.setDirection(toTangentDir(-ev.g1, -ev.g2));
+    const gLen = Math.min(2.1, Math.max(0.55, 0.45 + Math.log1p(ev.gradNorm) * 0.85));
+    gradArrow.setLength(gLen, 0.26, 0.14);
   } else {
-    init();
+    gradArrow.visible = false;
   }
-})();
+
+  // 2. Principal Hessian Eigenvectors (e1, e2 — bidirectional along curvature axes)
+  const setEigPair = (arrowP, arrowN, eVec, lambda) => {
+    const col = lambda >= 0 ? 0x34d399 : 0xfb7185;
+    const len = Math.min(1.55, Math.max(0.55, 0.45 + Math.log1p(Math.abs(lambda)) * 0.55));
+    arrowP.position.copy(origin);
+    arrowN.position.copy(origin);
+    arrowP.setDirection(toTangentDir(eVec[0], eVec[1]));
+    arrowN.setDirection(toTangentDir(-eVec[0], -eVec[1]));
+    arrowP.setColor(col);
+    arrowN.setColor(col);
+    arrowP.setLength(len, 0.19, 0.10);
+    arrowN.setLength(len, 0.19, 0.10);
+  };
+  setEigPair(eig1ArrowP, eig1ArrowN, ev.e1, ev.l1);
+  setEigPair(eig2ArrowP, eig2ArrowN, ev.e2, ev.l2);
+
+  // 3. Local 2nd-Order Taylor Quadratic Approximation Patch
+  if (showTaylor) {
+    const pos = taylorGeom.attributes.position;
+    let idx = 0;
+    for (let j = 0; j <= TAYLOR_SEG; j++) {
+      const dw2 = TAYLOR_RADIUS - (j / TAYLOR_SEG) * (2 * TAYLOR_RADIUS);
+      for (let i = 0; i <= TAYLOR_SEG; i++) {
+        const dw1 = -TAYLOR_RADIUS + (i / TAYLOR_SEG) * (2 * TAYLOR_RADIUS);
+        const qLoss =
+          ev.loss +
+          ev.g1 * dw1 +
+          ev.g2 * dw2 +
+          0.5 * (ev.h11 * dw1 * dw1 + 2 * ev.h12 * dw1 * dw2 + ev.h22 * dw2 * dw2);
+        pos.setXYZ(idx, toWorldX(w1 + dw1), lossToY(Math.max(0, qLoss)) + 0.08, toWorldZ(w2 + dw2));
+        idx++;
+      }
+    }
+    pos.needsUpdate = true;
+  }
+}
+
+// ============================================================================
+// 7. 2D CHARTS (LOG10 LOSS CURVE & INTERACTIVE 2D CONTOUR)
+// ============================================================================
+const lossCanvas = document.getElementById('lossCanvas');
+const lossCtx = lossCanvas.getContext('2d');
+const contourCanvas = document.getElementById('contourCanvas');
+const contourCtx = contourCanvas.getContext('2d');
+const contourBaseCanvas = document.createElement('canvas');
+contourBaseCanvas.width = contourCanvas.width;
+contourBaseCanvas.height = contourCanvas.height;
+const contourBaseCtx = contourBaseCanvas.getContext('2d');
+
+function renderContourTabBase() {
+  renderContourToCanvas(contourBaseCtx, contourBaseCanvas.width, contourBaseCanvas.height, true);
+}
+
+function drawContourTab() {
+  const W = contourCanvas.width;
+  const H = contourCanvas.height;
+  contourCtx.drawImage(contourBaseCanvas, 0, 0);
+
+  const toPx = (w1) => ((w1 + DOMAIN) / (2 * DOMAIN)) * W;
+  const toPy = (w2) => ((DOMAIN - w2) / (2 * DOMAIN)) * H;
+
+  // Start crosshair
+  const sx = toPx(engine.start[0]);
+  const sy = toPy(engine.start[1]);
+  contourCtx.strokeStyle = 'rgba(255,255,255,0.75)';
+  contourCtx.lineWidth = 1.5;
+  contourCtx.beginPath();
+  contourCtx.arc(sx, sy, 7, 0, Math.PI * 2);
+  contourCtx.stroke();
+
+  // Trajectories
+  for (const id of optIds) {
+    if (!engine.active[id]) continue;
+    const opt = engine.optimizers[id];
+    const meta = OPTIMIZER_META[id];
+    contourCtx.strokeStyle = meta.color;
+    contourCtx.lineWidth = id === engine.inspected ? 3.2 : 2.1;
+    contourCtx.beginPath();
+    opt.path.forEach((p, i) => {
+      const px = toPx(p.w1);
+      const py = toPy(p.w2);
+      if (i === 0) contourCtx.moveTo(px, py);
+      else contourCtx.lineTo(px, py);
+    });
+    contourCtx.stroke();
+
+    const last = opt.path[opt.path.length - 1];
+    contourCtx.fillStyle = meta.color;
+    contourCtx.beginPath();
+    contourCtx.arc(toPx(last.w1), toPy(last.w2), id === engine.inspected ? 6.5 : 4.5, 0, Math.PI * 2);
+    contourCtx.fill();
+    contourCtx.strokeStyle = '#04070d';
+    contourCtx.lineWidth = 1.5;
+    contourCtx.stroke();
+  }
+}
+
+function drawLossChart() {
+  const W = lossCanvas.width;
+  const H = lossCanvas.height;
+  const pad = { l: 64, r: 18, t: 22, b: 42 };
+  const pw = W - pad.l - pad.r;
+  const ph = H - pad.t - pad.b;
+
+  lossCtx.fillStyle = '#03060c';
+  lossCtx.fillRect(0, 0, W, H);
+
+  let minLog = Infinity;
+  let maxLog = -Infinity;
+  for (const id of optIds) {
+    if (!engine.active[id]) continue;
+    for (const l of engine.optimizers[id].losses) {
+      const lg = Math.log10(Math.max(1e-4, l));
+      if (lg < minLog) minLog = lg;
+      if (lg > maxLog) maxLog = lg;
+    }
+  }
+  if (!Number.isFinite(minLog)) { minLog = -2; maxLog = 1; }
+  minLog = Math.floor(minLog * 2) / 2 - 0.15;
+  maxLog = Math.ceil(maxLog * 2) / 2 + 0.15;
+
+  // Grid lines & labels
+  lossCtx.strokeStyle = 'rgba(255,255,255,0.08)';
+  lossCtx.lineWidth = 1;
+  lossCtx.fillStyle = '#7e90ad';
+  lossCtx.font = '18px ui-monospace, monospace';
+
+  for (let i = 0; i <= 4; i++) {
+    const f = i / 4;
+    const y = pad.t + f * ph;
+    const val = Math.pow(10, maxLog - f * (maxLog - minLog));
+    lossCtx.beginPath();
+    lossCtx.moveTo(pad.l, y);
+    lossCtx.lineTo(W - pad.r, y);
+    lossCtx.stroke();
+    lossCtx.textAlign = 'right';
+    lossCtx.fillText(val >= 1 ? val.toFixed(1) : val.toFixed(3), pad.l - 8, y + 6);
+  }
+
+  const xSpan = Math.max(20, engine.stepCount);
+  for (let i = 0; i <= 4; i++) {
+    const x = pad.l + (i / 4) * pw;
+    lossCtx.textAlign = 'center';
+    lossCtx.fillText(Math.round((i / 4) * xSpan), x, H - 14);
+  }
+
+  // Curves
+  for (const id of optIds) {
+    if (!engine.active[id]) continue;
+    const opt = engine.optimizers[id];
+    const meta = OPTIMIZER_META[id];
+    lossCtx.strokeStyle = meta.color;
+    lossCtx.lineWidth = id === engine.inspected ? 3.4 : 2.2;
+    lossCtx.beginPath();
+    opt.losses.forEach((l, idx) => {
+      const x = pad.l + (idx / xSpan) * pw;
+      const lg = Math.log10(Math.max(1e-4, l));
+      const y = pad.t + ((maxLog - lg) / (maxLog - minLog)) * ph;
+      if (idx === 0) lossCtx.moveTo(x, y);
+      else lossCtx.lineTo(x, y);
+    });
+    lossCtx.stroke();
+  }
+}
+
+// ============================================================================
+// 8. LIVE MATH INSPECTOR HUD RENDERING
+// ============================================================================
+const fmt = (n, d = 4) => (n >= 0 ? '+' : '−') + Math.abs(n).toFixed(d);
+
+function updateMathHUD() {
+  const opt = engine.optimizers[engine.inspected];
+  const ev = opt.eval;
+
+  document.getElementById('scenarioTitle').textContent = engine.scenario.title;
+  document.getElementById('surfaceFormula').textContent = engine.scenario.formula;
+  document.getElementById('stepCounter').textContent = `Step ${engine.stepCount} / ${MAX_STEPS}`;
+  document.getElementById('inspNameBadge').textContent = OPTIMIZER_META[engine.inspected].name;
+  document.getElementById('mathRuleHint').textContent = OPTIMIZER_META[engine.inspected].rule;
+  document.getElementById('startCoordText').textContent = `Start: (${fmt(engine.start[0], 2)}, ${fmt(engine.start[1], 2)})`;
+
+  const reg = document.getElementById('regimeBadge');
+  reg.textContent = `${ev.regime.toUpperCase()} (λ₁=${fmt(ev.l1, 2)}, λ₂=${fmt(ev.l2, 2)})`;
+  reg.className = `regime-chip ${ev.regimeClass}`;
+
+  document.getElementById('mathGrad').innerHTML =
+    `θₜ = [ ${fmt(opt.w1)} ]  (w₁)   L(θ) = <span class="pos">${ev.loss.toFixed(4)}</span>\n` +
+    `     [ ${fmt(opt.w2)} ]  (w₂)\n` +
+    `∇L = [ ${fmt(ev.g1)} ]  (∂L/∂w₁)\n` +
+    `     [ ${fmt(ev.g2)} ]  (∂L/∂w₂)  ‖∇L‖ = ${ev.gradNorm.toFixed(4)}`;
+
+  const detCls = ev.det > 0 ? 'pos' : 'neg';
+  document.getElementById('mathHess').innerHTML =
+    `H  = [ ${fmt(ev.h11, 3)}   ${fmt(ev.h12, 3)} ]\n` +
+    `     [ ${fmt(ev.h12, 3)}   ${fmt(ev.h22, 3)} ]\n` +
+    `tr(H) = ${fmt(ev.trace, 3)}    det(H) = <span class="${detCls}">${fmt(ev.det, 3)}</span>`;
+
+  const l1Cls = ev.l1 >= 0 ? 'pos' : 'neg';
+  const l2Cls = ev.l2 >= 0 ? 'pos' : 'neg';
+  const kStr = ev.kappa > 999 ? '>999' : ev.kappa.toFixed(2);
+  document.getElementById('mathEigen').innerHTML =
+    `λ₁ = <span class="${l1Cls}">${fmt(ev.l1, 3)}</span>   e₁ = [${fmt(ev.e1[0], 2)}, ${fmt(ev.e1[1], 2)}]\n` +
+    `λ₂ = <span class="${l2Cls}">${fmt(ev.l2, 3)}</span>   e₂ = [${fmt(ev.e2[0], 2)}, ${fmt(ev.e2[1], 2)}]\n` +
+    `κ  = |λ_max/λ_min| = <span class="warn">${kStr}</span>  (${ev.regime})`;
+
+  let stateText = '';
+  if (opt.id === 'sgd') {
+    stateText = `State: Stateless (first-order gradient)\nΔθ = [ ${fmt(opt.dw1)}, ${fmt(opt.dw2)} ]`;
+  } else if (opt.id === 'momentum') {
+    stateText = `vₜ = [ ${fmt(opt.mHat1, 3)}, ${fmt(opt.mHat2, 3)} ]\nΔθ = [ ${fmt(opt.dw1)}, ${fmt(opt.dw2)} ]`;
+  } else if (opt.id === 'rmsprop') {
+    stateText = `v̂ₜ = [ ${opt.vHat1.toFixed(4)}, ${opt.vHat2.toFixed(4)} ]\nΔθ = [ ${fmt(opt.dw1)}, ${fmt(opt.dw2)} ]`;
+  } else {
+    stateText =
+      `m̂ₜ = [ ${fmt(opt.mHat1, 3)}, ${fmt(opt.mHat2, 3)} ]\n` +
+      `v̂ₜ = [ ${opt.vHat1.toFixed(4)}, ${opt.vHat2.toFixed(4)} ]\n` +
+      `Δθ = [ ${fmt(opt.dw1)}, ${fmt(opt.dw2)} ]`;
+  }
+  if (opt.diverged) stateText += `\n<span class="neg">STATUS: DIVERGED (reduce η)</span>`;
+  document.getElementById('mathState').innerHTML = stateText;
+
+  // Leaderboard & Leader badge
+  const leader = engine.getLeader();
+  document.getElementById('leaderText').textContent = leader
+    ? `Leader: ${OPTIMIZER_META[leader.id].name} (${leader.eval.loss.toFixed(4)})`
+    : 'Leader: —';
+
+  const lb = document.getElementById('leaderboard');
+  lb.innerHTML = optIds
+    .map((id) => {
+      const o = engine.optimizers[id];
+      const meta = OPTIMIZER_META[id];
+      const val = !engine.active[id] ? 'OFF' : o.diverged ? 'DIV' : o.eval.loss.toFixed(4);
+      return `<div class="lb-item"><span class="lb-name"><i class="lb-dot" style="background:${meta.color}"></i>${meta.name}</span><span>${val}</span></div>`;
+    })
+    .join('');
+
+  drawLossChart();
+  drawContourTab();
+}
+
+// ============================================================================
+// 9. PROJECTED 3D LABELS WITH AUTOMATIC DE-OVERLAPPING
+// ============================================================================
+const projVec = new THREE.Vector3();
+
+function projectLabels() {
+  const W = window.innerWidth;
+  const H = window.innerHeight;
+
+  // Axis & tick labels
+  for (const item of axisLabels3D) {
+    projVec.copy(item.pos).project(camera);
+    if (projVec.z > 1) {
+      item.el.style.opacity = '0';
+    } else {
+      item.el.style.opacity = '1';
+      item.el.style.left = `${(projVec.x * 0.5 + 0.5) * W}px`;
+      item.el.style.top = `${(-projVec.y * 0.5 + 0.5) * H}px`;
+    }
+  }
+
+  // Optimizer pills with vertical anti-overlap repulsion
+  const activePills = [];
+  for (const id of optIds) {
+    if (!engine.active[id]) continue;
+    const vis = optVisuals[id];
+    projVec.copy(vis.sphere.position);
+    projVec.y += 0.28;
+    projVec.project(camera);
+    if (projVec.z > 1) {
+      vis.pill.style.opacity = '0';
+      continue;
+    }
+    vis.pill.style.opacity = '1';
+    activePills.push({
+      el: vis.pill,
+      x: (projVec.x * 0.5 + 0.5) * W,
+      y: (-projVec.y * 0.5 + 0.5) * H
+    });
+  }
+
+  activePills.sort((a, b) => a.y - b.y);
+  for (let pass = 0; pass < 4; pass++) {
+    for (let i = 0; i < activePills.length; i++) {
+      for (let j = i + 1; j < activePills.length; j++) {
+        const dx = Math.abs(activePills[i].x - activePills[j].x);
+        const dy = activePills[j].y - activePills[i].y;
+        if (dx < 82 && dy < 24) {
+          const push = (24 - dy) * 0.55;
+          activePills[i].y -= push;
+          activePills[j].y += push;
+        }
+      }
+    }
+  }
+
+  for (const p of activePills) {
+    p.el.style.left = `${p.x}px`;
+    p.el.style.top = `${p.y}px`;
+  }
+}
+
+// ============================================================================
+// 10. UI WIRING & INTERACTIONS
+// ============================================================================
+let isPlaying = true;
+const speeds = [
+  { label: '0.5×', interval: 180 },
+  { label: '1×', interval: 75 },
+  { label: '2×', interval: 28 }
+];
+let speedIdx = 1;
+let lastStepTime = 0;
+
+function syncSlidersFromEngine() {
+  const { lr, beta1, beta2, wd } = engine.params;
+  document.getElementById('lrSlider').value = lr;
+  document.getElementById('lrVal').textContent = lr.toFixed(3);
+  document.getElementById('b1Slider').value = beta1;
+  document.getElementById('b1Val').textContent = beta1.toFixed(2);
+  document.getElementById('b2Slider').value = beta2;
+  document.getElementById('b2Val').textContent = beta2.toFixed(3);
+  document.getElementById('wdSlider').value = wd;
+  document.getElementById('wdVal').textContent = wd.toFixed(3);
+}
+
+function buildOptimizerGrid() {
+  const grid = document.getElementById('optGrid');
+  grid.innerHTML = '';
+  for (const id of optIds) {
+    const meta = OPTIMIZER_META[id];
+    const btn = document.createElement('button');
+    btn.className = `opt-toggle ${engine.active[id] ? 'active' : ''} ${engine.inspected === id ? 'inspected' : ''}`;
+    btn.innerHTML = `
+      <span class="left"><i class="dot" style="background:${meta.color}"></i>${meta.name}</span>
+      <span class="eye" title="Inspect vectors & matrices">&#9673;</span>
+    `;
+    btn.addEventListener('click', (e) => {
+      if (e.target.classList.contains('eye')) {
+        engine.inspected = id;
+        engine.active[id] = true;
+      } else {
+        engine.active[id] = !engine.active[id];
+        if (!engine.active[engine.inspected]) {
+          const next = optIds.find((k) => engine.active[k]);
+          if (next) engine.inspected = next;
+        }
+      }
+      buildOptimizerGrid();
+      update3DOptimizers();
+      updateMathHUD();
+    });
+    grid.appendChild(btn);
+  }
+}
+
+// Scenario Buttons
+document.querySelectorAll('.scen-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.scen-btn').forEach((b) => b.classList.remove('active'));
+    btn.classList.add('active');
+    engine.loadScenario(btn.dataset.scen);
+    syncSlidersFromEngine();
+    rebuildSurface();
+    update3DOptimizers();
+    updateMathHUD();
+    isPlaying = true;
+    document.getElementById('playBtn').textContent = 'Pause';
+  });
+});
+
+// Playback Controls
+document.getElementById('playBtn').addEventListener('click', (e) => {
+  isPlaying = !isPlaying;
+  e.target.textContent = isPlaying ? 'Pause' : 'Play';
+});
+document.getElementById('stepBtn').addEventListener('click', () => {
+  isPlaying = false;
+  document.getElementById('playBtn').textContent = 'Play';
+  engine.step();
+  update3DOptimizers();
+  updateMathHUD();
+});
+document.getElementById('restartBtn').addEventListener('click', () => {
+  engine.reset();
+  update3DOptimizers();
+  updateMathHUD();
+  isPlaying = true;
+  document.getElementById('playBtn').textContent = 'Pause';
+});
+document.getElementById('speedBtn').addEventListener('click', (e) => {
+  speedIdx = (speedIdx + 1) % speeds.length;
+  e.target.textContent = speeds[speedIdx].label;
+});
+
+// Hyperparameter Sliders
+const bindSlider = (id, valId, key, digits) => {
+  document.getElementById(id).addEventListener('input', (e) => {
+    const v = parseFloat(e.target.value);
+    engine.params[key] = v;
+    document.getElementById(valId).textContent = v.toFixed(digits);
+  });
+};
+bindSlider('lrSlider', 'lrVal', 'lr', 3);
+bindSlider('b1Slider', 'b1Val', 'beta1', 2);
+bindSlider('b2Slider', 'b2Val', 'beta2', 3);
+bindSlider('wdSlider', 'wdVal', 'wd', 3);
+
+// Top Action Buttons
+document.getElementById('vectorsBtn').addEventListener('click', (e) => {
+  showVectors = !showVectors;
+  e.target.classList.toggle('active', showVectors);
+  updateGeometryOverlays();
+});
+document.getElementById('taylorBtn').addEventListener('click', (e) => {
+  showTaylor = !showTaylor;
+  e.target.classList.toggle('active', showTaylor);
+  updateGeometryOverlays();
+});
+document.getElementById('wireBtn').addEventListener('click', (e) => {
+  surfaceMat.wireframe = !surfaceMat.wireframe;
+  e.target.classList.toggle('active', surfaceMat.wireframe);
+});
+document.getElementById('orbitBtn').addEventListener('click', (e) => {
+  controls.autoRotate = !controls.autoRotate;
+  e.target.classList.toggle('active', controls.autoRotate);
+});
+document.getElementById('resetCamBtn').addEventListener('click', () => {
+  camera.position.copy(DEFAULT_CAM);
+  controls.target.copy(DEFAULT_TARGET);
+  controls.update();
+});
+
+// Collapsible Side Panels
+const bindCollapse = (cardId, btnId) => {
+  const card = document.getElementById(cardId);
+  const btn = document.getElementById(btnId);
+  btn.addEventListener('click', () => {
+    const collapsed = card.classList.toggle('collapsed');
+    btn.setAttribute('aria-expanded', String(!collapsed));
+  });
+};
+bindCollapse('controlsCard', 'toggleControlsBtn');
+bindCollapse('inspectorCard', 'toggleInspectorBtn');
+
+// Right Inspector Tabs
+document.querySelectorAll('.tab-btn').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelectorAll('.tab-pane').forEach((p) => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById(`tab-${btn.dataset.tab}`).classList.add('active');
+    drawLossChart();
+    drawContourTab();
+  });
+});
+
+// Interactive 2D Contour Click -> Drop Start Point
+contourCanvas.addEventListener('click', (e) => {
+  const rect = contourCanvas.getBoundingClientRect();
+  const u = (e.clientX - rect.left) / rect.width;
+  const v = (e.clientY - rect.top) / rect.height;
+  const w1 = -DOMAIN + u * (2 * DOMAIN);
+  const w2 = DOMAIN - v * (2 * DOMAIN);
+  engine.setStart(w1, w2);
+  update3DOptimizers();
+  updateMathHUD();
+  isPlaying = true;
+  document.getElementById('playBtn').textContent = 'Pause';
+});
+
+// Direct 3D Surface Raycasting Click -> Drop Start Point
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let downPos = { x: 0, y: 0 };
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downPos = { x: e.clientX, y: e.clientY };
+});
+renderer.domElement.addEventListener('pointerup', (e) => {
+  if (Math.hypot(e.clientX - downPos.x, e.clientY - downPos.y) > 5) return;
+  pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects([surfaceMesh, floorMesh]);
+  if (hits.length > 0) {
+    const pt = hits[0].point;
+    engine.setStart(fromWorldX(pt.x), fromWorldZ(pt.z));
+    update3DOptimizers();
+    updateMathHUD();
+    isPlaying = true;
+    document.getElementById('playBtn').textContent = 'Pause';
+  }
+});
+
+// Keyboard Shortcuts
+window.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;
+  const k = e.key.toLowerCase();
+  if (k === ' ') { e.preventDefault(); document.getElementById('playBtn').click(); }
+  if (k === 'v') document.getElementById('vectorsBtn').click();
+  if (k === 'q') document.getElementById('taylorBtn').click();
+  if (k === 'r') document.getElementById('resetCamBtn').click();
+});
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+// ============================================================================
+// 11. BOOTSTRAP & RENDER LOOP
+// ============================================================================
+syncSlidersFromEngine();
+buildOptimizerGrid();
+rebuildSurface();
+update3DOptimizers();
+updateMathHUD();
+
+function animate(now) {
+  requestAnimationFrame(animate);
+
+  if (isPlaying && now - lastStepTime >= speeds[speedIdx].interval) {
+    lastStepTime = now;
+    if (engine.step()) {
+      update3DOptimizers();
+      updateMathHUD();
+    } else {
+      isPlaying = false;
+      document.getElementById('playBtn').textContent = 'Play';
+    }
+  }
+
+  controls.update();
+  renderer.render(scene, camera);
+  projectLabels();
+}
+requestAnimationFrame(animate);
