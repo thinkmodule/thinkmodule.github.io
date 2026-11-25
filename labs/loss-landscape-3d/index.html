@@ -3,8 +3,9 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>3D Neural Loss Landscape &amp; Hessian Studio — ThinkModule</title>
+  <title>3D Neural Loss Landscape Studio — ThinkModule</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+  <link rel="stylesheet" href="style.css" />
   <script type="importmap">
     {
       "imports": {
@@ -13,786 +14,166 @@
       }
     }
   </script>
-  <style>
-    :root {
-      --bg: #04070d;
-      --glass: rgba(8, 13, 23, 0.72);
-      --glass-strong: rgba(10, 16, 28, 0.84);
-      --border: rgba(255, 255, 255, 0.09);
-      --border-bright: rgba(255, 255, 255, 0.22);
-      --text: #eef3fb;
-      --muted: #8b9bb4;
-      --dim: #5e6f8a;
-      --cyan: #38bdf8;
-      --emerald: #34d399;
-      --amber: #fbbf24;
-      --violet: #a78bfa;
-      --red: #fb7185;
-      --mono: ui-monospace, "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
-      --sans: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    }
-
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-
-    html, body {
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: var(--bg);
-      color: var(--text);
-      font-family: var(--sans);
-      -webkit-font-smoothing: antialiased;
-    }
-
-    #viewport {
-      position: fixed;
-      inset: 0;
-      width: 100vw;
-      height: 100vh;
-      cursor: grab;
-      background: radial-gradient(circle at 50% 42%, #0c1526 0%, #050911 62%, #020408 100%);
-    }
-    #viewport:active { cursor: grabbing; }
-
-    /* Projected 3D Labels Layer (Retina-sharp, zero z-blur) */
-    #labelLayer {
-      position: fixed;
-      inset: 0;
-      pointer-events: none;
-      z-index: 8;
-      overflow: hidden;
-    }
-    .axis-tag {
-      position: absolute;
-      transform: translate(-50%, -50%);
-      font-family: var(--mono);
-      font-size: 0.66rem;
-      font-weight: 600;
-      color: rgba(186, 206, 235, 0.78);
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
-      white-space: nowrap;
-      letter-spacing: 0.02em;
-    }
-    .axis-tag.tick {
-      font-size: 0.58rem;
-      font-weight: 500;
-      color: rgba(139, 155, 180, 0.62);
-    }
-    .opt-pill {
-      position: absolute;
-      transform: translate(-50%, -100%);
-      font-family: var(--mono);
-      font-size: 0.65rem;
-      font-weight: 700;
-      padding: 0.16rem 0.48rem;
-      border-radius: 999px;
-      background: rgba(6, 10, 18, 0.86);
-      backdrop-filter: blur(8px);
-      border: 1px solid rgba(255, 255, 255, 0.22);
-      display: flex;
-      align-items: center;
-      gap: 0.34rem;
-      white-space: nowrap;
-      box-shadow: 0 6px 18px rgba(0, 0, 0, 0.5);
-      transition: opacity 0.15s ease;
-    }
-    .opt-pill .swatch {
-      width: 6px;
-      height: 6px;
-      border-radius: 50%;
-      flex-shrink: 0;
-    }
-    .opt-pill.inspected {
-      border-color: rgba(255, 255, 255, 0.65);
-      box-shadow: 0 0 18px rgba(56, 189, 248, 0.32), 0 6px 18px rgba(0, 0, 0, 0.6);
-    }
-    .opt-pill.diverged {
-      border-color: var(--red);
-      color: #fecdd3;
-    }
-
-    /* Top Navigation Bar */
-    .hud-top {
-      position: fixed;
-      top: 16px;
-      left: 20px;
-      right: 20px;
-      z-index: 25;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 0.8rem;
-      pointer-events: none;
-    }
-    .brand, .top-actions {
-      pointer-events: auto;
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: var(--glass);
-      backdrop-filter: blur(18px);
-      -webkit-backdrop-filter: blur(18px);
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 0.42rem 0.82rem;
-    }
-    .brand-name {
-      font-weight: 700;
-      font-size: 0.9rem;
-      letter-spacing: -0.01em;
-    }
-    .brand-name .dot { color: var(--cyan); font-family: var(--mono); }
-    .pill {
-      font-family: var(--mono);
-      font-size: 0.66rem;
-      color: var(--cyan);
-      background: rgba(56, 189, 248, 0.12);
-      border: 1px solid rgba(56, 189, 248, 0.3);
-      padding: 0.15rem 0.48rem;
-      border-radius: 999px;
-    }
-
-    .ghost-btn, .hub-link {
-      font-family: var(--mono);
-      font-size: 0.71rem;
-      color: var(--muted);
-      background: transparent;
-      border: 1px solid transparent;
-      padding: 0.3rem 0.6rem;
-      border-radius: 7px;
-      cursor: pointer;
-      text-decoration: none;
-      transition: all 0.16s ease;
-    }
-    .ghost-btn:hover, .hub-link:hover {
-      color: var(--text);
-      background: rgba(255, 255, 255, 0.06);
-      border-color: var(--border);
-    }
-    .ghost-btn.active {
-      color: var(--cyan);
-      background: rgba(56, 189, 248, 0.14);
-      border-color: rgba(56, 189, 248, 0.38);
-    }
-    .hub-link {
-      color: var(--text);
-      border-color: var(--border);
-      background: rgba(255, 255, 255, 0.04);
-    }
-
-    /* Floating Sidebar Stacks */
-    .hud-left-stack, .hud-right-stack {
-      position: fixed;
-      top: 74px;
-      z-index: 20;
-      max-height: calc(100vh - 92px);
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      overflow-y: auto;
-      scrollbar-width: none;
-    }
-    .hud-left-stack::-webkit-scrollbar,
-    .hud-right-stack::-webkit-scrollbar { display: none; }
-
-    .hud-left-stack { left: 20px; width: 284px; }
-    .hud-right-stack { right: 20px; width: 326px; }
-
-    .glass-card {
-      background: var(--glass);
-      backdrop-filter: blur(22px);
-      -webkit-backdrop-filter: blur(22px);
-      border: 1px solid var(--border);
-      border-radius: 14px;
-      box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
-      overflow: hidden;
-      flex-shrink: 0;
-      transition: border-color 0.2s ease;
-    }
-    .glass-card:hover { border-color: var(--border-bright); }
-
-    /* Left Live Summary Header */
-    .summary-card {
-      padding: 0.92rem 1.02rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.62rem;
-    }
-    .eyebrow {
-      font-family: var(--mono);
-      font-size: 0.62rem;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
-      color: var(--muted);
-    }
-    .summary-card h1 {
-      font-size: 1.04rem;
-      font-weight: 700;
-      letter-spacing: -0.02em;
-      line-height: 1.2;
-    }
-    .badge-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 0.4rem;
-      align-items: center;
-    }
-    .regime-chip {
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      font-weight: 700;
-      letter-spacing: 0.04em;
-      padding: 0.24rem 0.52rem;
-      border-radius: 7px;
-      background: rgba(52, 211, 153, 0.12);
-      color: var(--emerald);
-      border: 1px solid rgba(52, 211, 153, 0.35);
-    }
-    .regime-chip.saddle {
-      background: rgba(251, 191, 36, 0.14);
-      color: var(--amber);
-      border-color: rgba(251, 191, 36, 0.4);
-    }
-    .regime-chip.concave {
-      background: rgba(251, 113, 133, 0.15);
-      color: var(--red);
-      border-color: rgba(251, 113, 133, 0.45);
-    }
-    .step-chip {
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      color: var(--muted);
-      background: rgba(255, 255, 255, 0.04);
-      border: 1px solid var(--border);
-      padding: 0.24rem 0.5rem;
-      border-radius: 7px;
-      font-variant-numeric: tabular-nums;
-    }
-
-    /* Playback Bar */
-    .playback-row {
-      display: flex;
-      gap: 0.34rem;
-      padding-top: 0.2rem;
-      border-top: 1px solid var(--border);
-    }
-    .pb-btn {
-      flex: 1;
-      font-family: var(--mono);
-      font-size: 0.68rem;
-      font-weight: 600;
-      padding: 0.36rem 0.45rem;
-      border-radius: 7px;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.04);
-      color: var(--text);
-      cursor: pointer;
-      transition: all 0.14s ease;
-    }
-    .pb-btn:hover {
-      background: rgba(255, 255, 255, 0.09);
-      border-color: var(--border-bright);
-    }
-    .pb-btn.primary {
-      background: rgba(56, 189, 248, 0.16);
-      border-color: rgba(56, 189, 248, 0.45);
-      color: #bae6fd;
-    }
-
-    /* Collapsible Headers */
-    .panel-toggle {
-      width: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.66rem 1.02rem;
-      background: transparent;
-      border: none;
-      cursor: pointer;
-      color: var(--text);
-      transition: background 0.15s ease;
-    }
-    .panel-toggle:hover { background: rgba(255, 255, 255, 0.04); }
-    .panel-title {
-      font-family: var(--mono);
-      font-size: 0.63rem;
-      text-transform: uppercase;
-      letter-spacing: 0.09em;
-      color: var(--muted);
-      font-weight: 600;
-    }
-    .toggle-icon {
-      font-size: 0.78rem;
-      color: var(--muted);
-      transition: transform 0.2s ease;
-    }
-    .glass-card.collapsed .toggle-icon { transform: rotate(-90deg); }
-    .glass-card.collapsed .panel-body { display: none; }
-
-    .panel-body {
-      padding: 0.7rem 1.02rem 0.95rem;
-      border-top: 1px solid var(--border);
-      display: flex;
-      flex-direction: column;
-      gap: 0.8rem;
-    }
-
-    .section-block {
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-    }
-    .sec-label {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-family: var(--mono);
-      font-size: 0.6rem;
-      text-transform: uppercase;
-      letter-spacing: 0.09em;
-      color: var(--dim);
-    }
-
-    /* Scenarios 2x2 Grid */
-    .scenario-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.36rem;
-    }
-    .scen-btn {
-      text-align: left;
-      padding: 0.44rem 0.54rem;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.025);
-      color: var(--text);
-      cursor: pointer;
-      display: flex;
-      flex-direction: column;
-      gap: 0.14rem;
-      transition: all 0.15s ease;
-    }
-    .scen-btn strong { font-size: 0.72rem; font-weight: 600; }
-    .scen-btn span {
-      font-family: var(--mono);
-      font-size: 0.58rem;
-      color: var(--dim);
-    }
-    .scen-btn:hover {
-      border-color: var(--border-bright);
-      background: rgba(255, 255, 255, 0.06);
-    }
-    .scen-btn.active {
-      border-color: rgba(56, 189, 248, 0.55);
-      background: rgba(56, 189, 248, 0.12);
-    }
-    .scen-btn.active span { color: #93c5fd; }
-
-    /* Optimizer Toggles & Inspected Picker */
-    .opt-grid {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.32rem;
-    }
-    .opt-toggle {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0.34rem 0.52rem;
-      border-radius: 7px;
-      border: 1px solid var(--border);
-      background: rgba(255, 255, 255, 0.025);
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 0.67rem;
-      cursor: pointer;
-      transition: all 0.14s ease;
-    }
-    .opt-toggle .left {
-      display: flex;
-      align-items: center;
-      gap: 0.36rem;
-    }
-    .opt-toggle .dot {
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-    }
-    .opt-toggle.active {
-      color: var(--text);
-      border-color: rgba(255, 255, 255, 0.24);
-      background: rgba(255, 255, 255, 0.06);
-    }
-    .opt-toggle .eye {
-      font-size: 0.62rem;
-      opacity: 0.45;
-      padding: 0.08rem 0.24rem;
-      border-radius: 4px;
-    }
-    .opt-toggle.inspected .eye {
-      opacity: 1;
-      color: var(--cyan);
-      background: rgba(56, 189, 248, 0.18);
-    }
-
-    /* Sliders */
-    .slider-wrap {
-      display: flex;
-      flex-direction: column;
-      gap: 0.26rem;
-    }
-    .s-head {
-      display: flex;
-      justify-content: space-between;
-      font-family: var(--mono);
-      font-size: 0.66rem;
-      color: var(--muted);
-    }
-    .s-head strong { color: var(--text); font-variant-numeric: tabular-nums; }
-    input[type="range"] {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 4px;
-      border-radius: 99px;
-      background: rgba(255, 255, 255, 0.14);
-      outline: none;
-      cursor: pointer;
-    }
-    input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      background: #fff;
-      border: 2px solid var(--cyan);
-      box-shadow: 0 0 10px rgba(56, 189, 248, 0.65);
-    }
-
-    /* Right Inspector Tabs */
-    .tab-bar {
-      display: flex;
-      gap: 0.28rem;
-      background: rgba(255, 255, 255, 0.03);
-      padding: 0.22rem;
-      border-radius: 9px;
-      border: 1px solid var(--border);
-    }
-    .tab-btn {
-      flex: 1;
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      font-weight: 600;
-      padding: 0.34rem 0.4rem;
-      border-radius: 7px;
-      border: none;
-      background: transparent;
-      color: var(--muted);
-      cursor: pointer;
-      transition: all 0.14s ease;
-    }
-    .tab-btn:hover { color: var(--text); }
-    .tab-btn.active {
-      background: #e6f6ff;
-      color: #04070d;
-      font-weight: 700;
-    }
-
-    .tab-pane { display: none; flex-direction: column; gap: 0.66rem; }
-    .tab-pane.active { display: flex; }
-
-    /* Mathematical Matrix Cards */
-    .math-box {
-      background: rgba(3, 6, 12, 0.56);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 0.58rem 0.68rem;
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    .math-head {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-family: var(--mono);
-      font-size: 0.59rem;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-      color: var(--cyan);
-    }
-    .math-head span:last-child { color: var(--dim); text-transform: none; }
-    .math-pre {
-      font-family: var(--mono);
-      font-size: 0.69rem;
-      line-height: 1.5;
-      color: #dbeafe;
-      font-variant-numeric: tabular-nums;
-      white-space: pre;
-    }
-    .math-pre .pos { color: var(--emerald); }
-    .math-pre .neg { color: var(--red); }
-    .math-pre .warn { color: var(--amber); }
-    .math-pre .dim { color: var(--muted); }
-
-    .formula-bar {
-      font-family: var(--mono);
-      font-size: 0.63rem;
-      color: var(--muted);
-      padding: 0.42rem 0.6rem;
-      border-radius: 8px;
-      background: rgba(56, 189, 248, 0.07);
-      border: 1px solid rgba(56, 189, 248, 0.2);
-      line-height: 1.4;
-    }
-
-    /* 2D Canvas Plots inside Right HUD */
-    .plot-canvas {
-      width: 100%;
-      height: 224px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
-      background: #03060c;
-      display: block;
-    }
-    .plot-canvas.clickable { cursor: crosshair; }
-
-    .leaderboard {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 0.34rem;
-    }
-    .lb-item {
-      background: rgba(255, 255, 255, 0.03);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 0.36rem 0.5rem;
-      font-family: var(--mono);
-      font-size: 0.64rem;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-variant-numeric: tabular-nums;
-    }
-    .lb-name { display: flex; align-items: center; gap: 0.32rem; color: var(--muted); }
-    .lb-dot { width: 6px; height: 6px; border-radius: 50%; }
-
-    /* Minimal Bottom Legend Pill */
-    .hud-hint {
-      position: fixed;
-      bottom: 14px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 15;
-      background: rgba(8, 13, 23, 0.66);
-      backdrop-filter: blur(14px);
-      border: 1px solid var(--border);
-      border-radius: 999px;
-      padding: 0.34rem 0.9rem;
-      font-family: var(--mono);
-      font-size: 0.63rem;
-      color: var(--muted);
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      white-space: nowrap;
-      pointer-events: none;
-    }
-    .legend-item { display: inline-flex; align-items: center; gap: 0.3rem; }
-    .legend-line { width: 10px; height: 2px; border-radius: 2px; display: inline-block; }
-
-    @media (max-width: 1060px) {
-      .hud-right-stack { width: 290px; }
-      .hud-hint { display: none; }
-    }
-    @media (max-width: 820px) {
-      .hud-right-stack { display: none; }
-      .hud-left-stack { width: 248px; left: 12px; }
-      .top-actions .ghost-btn:not(#vectorsBtn) { display: none; }
-    }
-  </style>
 </head>
 <body>
+  <!-- Full-Viewport PBR WebGL Studio -->
   <div id="viewport"></div>
-  <div id="labelLayer"></div>
 
-  <!-- Top Navigation -->
+  <div id="loadingOverlay">
+    <div class="loader-ring"></div>
+    <span>Sculpting 3D Loss Manifold &amp; PBR Studio Lighting&hellip;</span>
+  </div>
+
+  <!-- Top Minimal Navigation Bar -->
   <header class="hud-top">
-    <div class="brand">
-      <span class="brand-name">Think<span class="dot">Module</span></span>
-      <span class="pill">Module 03 &bull; WebGL 3D Engine</span>
+    <div class="bar-pill">
+      <a href="../../index.html" class="brand-link" title="Back to Portfolio Hub">
+        <span class="brand-name">Think<span class="dot">Module</span></span>
+        <span class="mod-pill">Module 03 &bull; WebGL PBR</span>
+      </a>
     </div>
-    <div class="top-actions">
-      <button class="ghost-btn active" id="vectorsBtn" title="Toggle 3D Gradient & Hessian Eigenvectors (V)">3D Vectors</button>
-      <button class="ghost-btn active" id="taylorBtn" title="Toggle 2nd-Order Local Taylor Quadratic Bowl (Q)">Taylor Bowl</button>
-      <button class="ghost-btn" id="wireBtn" title="Toggle Mesh Wireframe">Wireframe</button>
-      <button class="ghost-btn active" id="orbitBtn" title="Toggle Gentle Auto-Orbit">Auto-Orbit</button>
-      <button class="ghost-btn" id="resetCamBtn" title="Reset Camera (R)">Reset View</button>
-      <a href="../../index.html" class="hub-link">&larr; Portfolio Hub</a>
+
+    <nav class="bar-pill scen-bar" id="scenarioBar" aria-label="Optimization Scenarios">
+      <button type="button" class="scen-btn active" data-scen="saddle">Saddle Escape</button>
+      <button type="button" class="scen-btn" data-scen="ravine">Steep Canyon</button>
+      <button type="button" class="scen-btn" data-scen="localmin">Local Min Trap</button>
+    </nav>
+
+    <div class="bar-pill top-actions">
+      <button type="button" class="ghost-btn active" data-cam="iso" title="Isometric Studio View">Iso</button>
+      <button type="button" class="ghost-btn" data-cam="top" title="Top-Down Contour View">Top</button>
+      <button type="button" class="ghost-btn" data-cam="low" title="Low Valley Angle">Valley</button>
+      <span class="v-sep"></span>
+      <button type="button" class="ghost-btn" id="orbitBtn" title="Toggle Gentle Turntable Orbit">Orbit</button>
+      <a href="../../index.html" class="hub-link">&larr; Hub</a>
     </div>
   </header>
 
-  <!-- Left Floating Sidebar -->
-  <div class="hud-left-stack">
-    <aside class="glass-card summary-card">
-      <div class="eyebrow">2nd-Order Differential Optimization</div>
-      <h1 id="scenarioTitle">Saddle Escape Manifold</h1>
-      <div class="badge-row">
-        <span class="regime-chip saddle" id="regimeBadge">SADDLE POINT</span>
-        <span class="step-chip" id="stepCounter">Step 0 / 240</span>
+  <!-- Left Collapsible Controls Panel -->
+  <aside class="side-panel side-left" id="controlsPanel">
+    <button type="button" class="panel-head" id="toggleControlsBtn" aria-expanded="true">
+      <div class="ph-copy">
+        <span class="ph-eyebrow">Optimization Studio</span>
+        <span class="ph-title" id="scenarioTitle">Saddle Point Escape</span>
       </div>
-      <div class="playback-row">
-        <button class="pb-btn primary" id="playBtn">Pause</button>
-        <button class="pb-btn" id="stepBtn">+1 Step</button>
-        <button class="pb-btn" id="restartBtn">Restart</button>
-        <button class="pb-btn" id="speedBtn" title="Simulation Speed">1&times;</button>
+      <span class="chevron">&#9662;</span>
+    </button>
+
+    <div class="panel-body">
+      <p class="story-text" id="scenarioStory"></p>
+
+      <!-- Timeline & Playback -->
+      <div class="section">
+        <div class="sec-head">
+          <span>Training Timeline</span>
+          <strong id="epochLabel">Step 0 / 180</strong>
+        </div>
+        <div class="pb-grid">
+          <button type="button" class="pb-btn primary" id="playBtn">Pause</button>
+          <button type="button" class="pb-btn" id="restartBtn">Restart</button>
+          <button type="button" class="pb-btn" id="speedBtn" title="Playback Speed">1&times;</button>
+        </div>
+        <input type="range" id="timelineSlider" min="0" max="180" step="1" value="0" aria-label="Training Step" />
       </div>
-    </aside>
 
-    <section class="glass-card" id="controlsCard">
-      <button type="button" class="panel-toggle" id="toggleControlsBtn" aria-expanded="true">
-        <span class="panel-title">Studio Controls</span>
-        <span class="toggle-icon">&#9662;</span>
-      </button>
+      <!-- Optimizers -->
+      <div class="section">
+        <div class="sec-head">
+          <span>Optimizers</span>
+          <span class="sec-hint">Click to focus</span>
+        </div>
+        <div class="opt-list" id="optList"></div>
+      </div>
 
-      <div class="panel-body">
-        <div class="section-block">
-          <div class="sec-label"><span>Optimization Scenarios</span><span>1-Click</span></div>
-          <div class="scenario-grid" id="scenarioGrid">
-            <button class="scen-btn active" data-scen="saddle">
-              <strong>Saddle Escape</strong>
-              <span>SGD stalls &bull; AdamW escapes</span>
-            </button>
-            <button class="scen-btn" data-scen="ravine">
-              <strong>Ravine Zig-Zag</strong>
-              <span>&kappa; = 32.5 ill-conditioned</span>
-            </button>
-            <button class="scen-btn" data-scen="rosenbrock">
-              <strong>Rosenbrock Bend</strong>
-              <span>Curved non-convex valley</span>
-            </button>
-            <button class="scen-btn" data-scen="localmin">
-              <strong>Local Min Trap</strong>
-              <span>Momentum barrier jump</span>
-            </button>
+      <!-- Single Clean Step-Size Multiplier + Curvature Toggle -->
+      <div class="section">
+        <div class="sec-head">
+          <span>Step Size Scale (&eta;)</span>
+          <strong id="lrScaleVal">1.00&times;</strong>
+        </div>
+        <input type="range" id="lrScaleSlider" min="0.4" max="1.6" step="0.05" value="1.0" aria-label="Learning Rate Scale" />
+
+        <div class="toggle-row">
+          <button type="button" class="chip-toggle active" id="vectorsToggle">Gradient &amp; Curvature</button>
+          <button type="button" class="chip-toggle active" id="markersToggle">Minima Pins</button>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Collapsible Insight & Math Inspector -->
+  <aside class="side-panel side-right" id="inspectorPanel">
+    <button type="button" class="panel-head" id="toggleInspectorBtn" aria-expanded="true">
+      <div class="ph-copy">
+        <span class="ph-eyebrow">Live Telemetry</span>
+        <span class="ph-title" id="inspectedHeader">Inspecting: AdamW</span>
+      </div>
+      <span class="chevron">&#9662;</span>
+    </button>
+
+    <div class="panel-body">
+      <div class="tab-bar" id="tabBar">
+        <button type="button" class="tab-btn active" data-tab="overview">Loss &amp; Insight</button>
+        <button type="button" class="tab-btn" data-tab="math">Exact Math</button>
+      </div>
+
+      <!-- Tab 1: Intuitive Loss Chart & Live Takeaway -->
+      <div class="tab-pane active" id="tab-overview">
+        <div class="regime-banner" id="regimeBanner">
+          <span id="regimeName">CONVEX VALLEY</span>
+          <span id="currentLossBadge">L = 0.0400</span>
+        </div>
+
+        <div class="chart-wrap">
+          <div class="sec-head">
+            <span>Loss Convergence (log₁₀)</span>
+            <strong id="leaderBadge">—</strong>
           </div>
+          <canvas id="lossCanvas" width="560" height="320"></canvas>
         </div>
 
-        <div class="section-block">
-          <div class="sec-label"><span>Active Optimizers</span><span>Click &#9673; to inspect</span></div>
-          <div class="opt-grid" id="optGrid"></div>
-        </div>
-
-        <div class="section-block">
-          <div class="sec-label"><span>Hyperparameters</span><span>Live Physics</span></div>
-
-          <label class="slider-wrap">
-            <div class="s-head"><span>Learning Rate (&eta;)</span><strong id="lrVal">0.080</strong></div>
-            <input type="range" id="lrSlider" min="0.005" max="0.600" step="0.005" value="0.080" />
-          </label>
-
-          <label class="slider-wrap">
-            <div class="s-head"><span>Momentum (&beta;₁)</span><strong id="b1Val">0.90</strong></div>
-            <input type="range" id="b1Slider" min="0.00" max="0.98" step="0.01" value="0.90" />
-          </label>
-
-          <label class="slider-wrap">
-            <div class="s-head"><span>RMS Decay (&beta;₂)</span><strong id="b2Val">0.990</strong></div>
-            <input type="range" id="b2Slider" min="0.500" max="0.999" step="0.001" value="0.990" />
-          </label>
-
-          <label class="slider-wrap">
-            <div class="s-head"><span>Weight Decay (&lambda;)</span><strong id="wdVal">0.010</strong></div>
-            <input type="range" id="wdSlider" min="0.000" max="0.100" step="0.005" value="0.010" />
-          </label>
+        <div class="takeaway-box">
+          <div class="tk-label">Why this happens</div>
+          <p id="optTakeaway"></p>
         </div>
       </div>
-    </section>
+
+      <!-- Tab 2: Exact Differential Geometry & Hessian -->
+      <div class="tab-pane" id="tab-math">
+        <div class="formula-pill" id="surfaceFormula"></div>
+
+        <div class="math-card">
+          <div class="mc-head"><span>1. Position &amp; Gradient</span><span>&theta;ₜ, &nabla;L</span></div>
+          <pre class="mc-pre" id="mathGrad"></pre>
+        </div>
+
+        <div class="math-card">
+          <div class="mc-head"><span>2. Exact 2&times;2 Hessian</span><span>H = &nabla;&sup2;L</span></div>
+          <pre class="mc-pre" id="mathHess"></pre>
+        </div>
+
+        <div class="math-card">
+          <div class="mc-head"><span>3. Eigenvalues &amp; Curvature</span><span>H&middot;eᵢ = &lambda;ᵢeᵢ</span></div>
+          <pre class="mc-pre" id="mathEigen"></pre>
+        </div>
+
+        <div class="math-card">
+          <div class="mc-head"><span>4. Optimizer Update</span><span id="mathRuleTag">AdamW</span></div>
+          <pre class="mc-pre" id="mathUpdate"></pre>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Minimal Bottom Gesture & Color Key -->
+  <div class="hud-footer">
+    <span>Drag to Orbit &bull; Scroll to Zoom</span>
+    <span class="dot-sep">&bull;</span>
+    <span class="key-item"><i class="k-dot" style="background:#fb7185"></i>SGD</span>
+    <span class="key-item"><i class="k-dot" style="background:#fbbf24"></i>Momentum</span>
+    <span class="key-item"><i class="k-dot" style="background:#34d399"></i>AdamW</span>
   </div>
 
-  <!-- Right Floating Mathematical Inspector -->
-  <div class="hud-right-stack">
-    <section class="glass-card" id="inspectorCard">
-      <button type="button" class="panel-toggle" id="toggleInspectorBtn" aria-expanded="true">
-        <span class="panel-title">Live Math &amp; Telemetry</span>
-        <span class="toggle-icon">&#9662;</span>
-      </button>
-
-      <div class="panel-body">
-        <div class="tab-bar" id="tabBar">
-          <button class="tab-btn active" data-tab="matrices">Hessian &amp; Math</button>
-          <button class="tab-btn" data-tab="loss">Log₁₀ Loss</button>
-          <button class="tab-btn" data-tab="contour">2D Contour</button>
-        </div>
-
-        <!-- Tab 1: Exact Matrices & Spectral Decomposition -->
-        <div class="tab-pane active" id="tab-matrices">
-          <div class="formula-bar" id="surfaceFormula"></div>
-
-          <div class="math-box">
-            <div class="math-head">
-              <span>1. Coordinates &amp; Gradient</span>
-              <span id="inspNameBadge">AdamW</span>
-            </div>
-            <div class="math-pre" id="mathGrad"></div>
-          </div>
-
-          <div class="math-box">
-            <div class="math-head">
-              <span>2. Exact 2&times;2 Hessian Matrix H</span>
-              <span>&nabla;&sup2;L(&theta;)</span>
-            </div>
-            <div class="math-pre" id="mathHess"></div>
-          </div>
-
-          <div class="math-box">
-            <div class="math-head">
-              <span>3. Spectral Eigen-Decomposition</span>
-              <span>H&middot;eᵢ = &lambda;ᵢ&middot;eᵢ</span>
-            </div>
-            <div class="math-pre" id="mathEigen"></div>
-          </div>
-
-          <div class="math-box">
-            <div class="math-head">
-              <span>4. Optimizer State &amp; Step &Delta;&theta;</span>
-              <span id="mathRuleHint">Decoupled WD</span>
-            </div>
-            <div class="math-pre" id="mathState"></div>
-          </div>
-        </div>
-
-        <!-- Tab 2: Log10 Loss Curve -->
-        <div class="tab-pane" id="tab-loss">
-          <div class="sec-label"><span>Vertical: log₁₀ L(&theta;ₜ)</span><span id="leaderText">Leader: —</span></div>
-          <canvas class="plot-canvas" id="lossCanvas" width="580" height="448"></canvas>
-          <div class="leaderboard" id="leaderboard"></div>
-        </div>
-
-        <!-- Tab 3: Interactive 2D Contour Map -->
-        <div class="tab-pane" id="tab-contour">
-          <div class="sec-label"><span>Click map or 3D surface to drop start</span><span id="startCoordText">Start: —</span></div>
-          <canvas class="plot-canvas clickable" id="contourCanvas" width="580" height="448"></canvas>
-          <div class="formula-bar" style="font-size:0.61rem;">
-            Axes: w₁ &isin; [&minus;2.2, +2.2] (horiz.) &bull; w₂ &isin; [&minus;2.2, +2.2] (vert.). Both 3D surface clicks and 2D clicks teleport all 4 optimizers simultaneously.
-          </div>
-        </div>
-      </div>
-    </section>
-  </div>
-
-  <!-- Minimal Bottom Legend -->
-  <div class="hud-hint">
-    <span>Drag: Orbit 3D</span>
-    <span>&bull;</span>
-    <span>Click Surface: New Start (w₁, w₂)</span>
-    <span>&bull;</span>
-    <span class="legend-item"><i class="legend-line" style="background:#38bdf8"></i>&minus;&nabla;L</span>
-    <span class="legend-item"><i class="legend-line" style="background:#34d399"></i>eᵢ (&lambda; &gt; 0)</span>
-    <span class="legend-item"><i class="legend-line" style="background:#fb7185"></i>eᵢ (&lambda; &lt; 0)</span>
-  </div>
-
-  <script type="module" src="ui.js"></script>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
