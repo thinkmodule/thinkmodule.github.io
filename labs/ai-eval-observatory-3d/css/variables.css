@@ -1,0 +1,35 @@
+:root {
+  --bg-void: #050811;
+  --bg-glass: rgba(10, 15, 28, 0.72);
+  --bg-glass-strong: rgba(12, 18, 34, 0.86);
+  --bg-card: rgba(255, 255, 255, 0.035);
+  --bg-card-hover: rgba(255, 255, 255, 0.07);
+
+  --border-subtle: rgba(148, 163, 184, 0.14);
+  --border-active: rgba(56, 189, 248, 0.45);
+
+  --text-primary: #f1f5f9;
+  --text-secondary: #94a3b8;
+  --text-muted: #64748b;
+
+  --accent-cyan: #38bdf8;
+  --accent-emerald: #10b981;
+  --accent-violet: #a78bfa;
+  --accent-amber: #f59e0b;
+  --accent-rose: #f43f5e;
+
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --dock-width-left: 274px;
+  --dock-width-right: 296px;
+  --topbar-height: 44px;
+
+  --ease-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-glass: 0 12px 40px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}

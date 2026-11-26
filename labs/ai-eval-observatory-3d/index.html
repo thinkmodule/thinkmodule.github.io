@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Eval & RLHF Vector Observatory 3D</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="./css/variables.css" />
+  <link rel="stylesheet" href="./css/layout.css" />
+  <link rel="stylesheet" href="./css/components.css" />
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.164.1/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.164.1/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <!-- Full-bleed WebGL2 3D Viewport -->
+  <div id="canvas-container" aria-label="3D AI Evaluation Vector Space Simulation"></div>
+
+  <!-- Smooth Initialization Overlay -->
+  <div id="loading-overlay">
+    <div class="loader-card">
+      <div class="loader-ring"></div>
+      <div class="loader-title">Initializing Latent Vector Observatory</div>
+      <div class="loader-sub">Compiling GLSL shaders &amp; building 3-layer HNSW index...</div>
+    </div>
+  </div>
+
+  <!-- Top Minimal Telemetry Header -->
+  <header id="top-bar" class="glass-surface hud-element">
+    <div class="top-left">
+      <div class="brand-dot"></div>
+      <span class="brand-title">AI EVAL OBSERVATORY</span>
+      <span class="brand-tag">3D LATENT &amp; RLHF ENGINE</span>
+    </div>
+    <div class="top-center">
+      <span id="active-scenario-pill" class="scenario-pill">GROUNDED RAG PIPELINE</span>
+    </div>
+    <div class="top-right">
+      <span id="fps-badge" class="mono-badge">60 FPS · WebGL2</span>
+      <button id="btn-zen-mode" class="icon-pill-btn" title="Hide all panels (Shortcut: H)">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7"/>
+        </svg>
+        <span>Zen</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Left Collapsible Control Dock -->
+  <aside id="dock-left" class="side-dock dock-left glass-surface hud-element">
+    <div class="dock-header">
+      <div class="dock-header-title">
+        <span class="accent-bar cyan"></span>
+        <span>SIMULATION CONTROLS</span>
+      </div>
+      <button id="btn-toggle-left" class="collapse-btn" title="Collapse Controls (Shortcut: [)" aria-label="Toggle Left Dock">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polyline points="15 18 9 12 15 6"></polyline>
+        </svg>
+      </button>
+    </div>
+
+    <div class="dock-body">
+      <section class="control-group">
+        <div class="group-label">HYPERPARAMETERS</div>
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <label for="slider-topk">Retrieval Top-K</label>
+            <span id="val-topk" class="mono-val">6</span>
+          </div>
+          <input id="slider-topk" type="range" min="3" max="12" step="1" value="6" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <label for="slider-temp">Sampling Temp (τ)</label>
+            <span id="val-temp" class="mono-val">0.45</span>
+          </div>
+          <input id="slider-temp" type="range" min="0.05" max="1.50" step="0.05" value="0.45" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <label for="slider-alignment">RLHF Alignment (β)</label>
+            <span id="val-alignment" class="mono-val">0.80</span>
+          </div>
+          <input id="slider-alignment" type="range" min="0.00" max="1.00" step="0.05" value="0.80" />
+        </div>
+
+        <div class="slider-row">
+          <div class="slider-meta">
+            <label for="slider-bloom">Optical Bloom</label>
+            <span id="val-bloom" class="mono-val">0.42</span>
+          </div>
+          <input id="slider-bloom" type="range" min="0.00" max="1.00" step="0.02" value="0.42" />
+        </div>
+      </section>
+
+      <section class="control-group">
+        <div class="group-label">3D VISUAL LAYERS</div>
+        <div class="toggle-grid">
+          <label class="toggle-item">
+            <input id="toggle-hnsw" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">HNSW Graph Layers</span>
+          </label>
+          <label class="toggle-item">
+            <input id="toggle-hull" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Grounding Envelope</span>
+          </label>
+          <label class="toggle-item">
+            <input id="toggle-reward-field" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">RLHF Reward Field</span>
+          </label>
+          <label class="toggle-item">
+            <input id="toggle-safety-plane" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Safety Hyperplane</span>
+          </label>
+          <label class="toggle-item">
+            <input id="toggle-halos" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Domain Density Halos</span>
+          </label>
+          <label class="toggle-item">
+            <input id="toggle-autorotate" type="checkbox" checked />
+            <span class="toggle-switch"></span>
+            <span class="toggle-text">Cinematic Orbit</span>
+          </label>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <div class="group-label">CAMERA VIEWPOINTS</div>
+        <div class="preset-grid">
+          <button class="cam-preset-btn active" data-preset="overview">Overview</button>
+          <button class="cam-preset-btn" data-preset="topdown">HNSW Map</button>
+          <button class="cam-preset-btn" data-preset="focus">Vector Focus</button>
+          <button class="cam-preset-btn" data-preset="judge">Boundary</button>
+        </div>
+      </section>
+
+      <div class="action-row">
+        <button id="btn-rerun" class="primary-btn">Re-Sample Beams</button>
+        <button id="btn-reset-defaults" class="ghost-btn">Reset</button>
+      </div>
+
+      <div class="legend-strip">
+        <div class="legend-title">SEMANTIC CLUSTERS</div>
+        <div id="cluster-legend" class="legend-items"></div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Right Collapsible Telemetry & Judge Dock -->
+  <aside id="dock-right" class="side-dock dock-right glass-surface hud-element">
+    <div class="dock-header">
+      <button id="btn-toggle-right" class="collapse-btn" title="Collapse Telemetry (Shortcut: ])" aria-label="Toggle Right Dock">
+        <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polyline points="9 18 15 12 9 6"></polyline>
+        </svg>
+      </button>
+      <div class="dock-header-title">
+        <span>JUDGE TELEMETRY</span>
+        <span class="accent-bar emerald"></span>
+      </div>
+    </div>
+
+    <div class="dock-body">
+      <div class="verdict-card">
+        <div class="verdict-top">
+          <span class="verdict-label">EVALUATION VERDICT</span>
+          <span id="eval-verdict-badge" class="verdict-badge pass">PASS · ALIGNED</span>
+        </div>
+        <div class="verdict-score-row">
+          <span id="eval-overall-score" class="verdict-score">94.2</span>
+          <span class="verdict-unit">/ 100 COMPOSITE</span>
+        </div>
+        <div id="scenario-query-preview" class="query-preview"></div>
+      </div>
+
+      <section class="control-group">
+        <div class="group-label">LIVE MATHEMATICAL METRICS</div>
+
+        <div class="metric-row">
+          <div class="metric-meta"><span>Faithfulness (Grounding)</span><span id="metric-faithfulness-val" class="mono-val">0.00</span></div>
+          <div class="metric-track"><div id="metric-faithfulness-bar" class="metric-fill cyan"></div></div>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric-meta"><span>Semantic Relevance</span><span id="metric-relevance-val" class="mono-val">0.00</span></div>
+          <div class="metric-track"><div id="metric-relevance-bar" class="metric-fill violet"></div></div>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric-meta"><span>Retrieval NDCG@K</span><span id="metric-ndcg-val" class="mono-val">0.00</span></div>
+          <div class="metric-track"><div id="metric-ndcg-bar" class="metric-fill emerald"></div></div>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric-meta"><span>Safety Margin</span><span id="metric-safety-val" class="mono-val">0.00</span></div>
+          <div class="metric-track"><div id="metric-safety-bar" class="metric-fill amber"></div></div>
+        </div>
+
+        <div class="metric-row">
+          <div class="metric-meta"><span>KL-Divergence Penalty</span><span id="metric-kldiv-val" class="mono-val">0.00</span></div>
+          <div class="metric-track"><div id="metric-kldiv-bar" class="metric-fill rose"></div></div>
+        </div>
+
+        <div class="mini-stats-grid">
+          <div class="mini-stat">
+            <span class="mini-stat-label">DRIFT Δ</span>
+            <span id="metric-drift-val" class="mini-stat-val">0.00</span>
+          </div>
+          <div class="mini-stat">
+            <span class="mini-stat-label">HNSW HOPS</span>
+            <span id="metric-hops-val" class="mini-stat-val">0</span>
+          </div>
+          <div class="mini-stat">
+            <span class="mini-stat-label">PRECISION@K</span>
+            <span id="metric-precision-val" class="mini-stat-val">0%</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="control-group">
+        <div class="group-label">MULTI-AXIS EVAL RADAR</div>
+        <div class="chart-wrapper">
+          <canvas id="eval-radar-canvas" width="256" height="154"></canvas>
+        </div>
+      </section>
+
+      <section class="control-group trace-group">
+        <div class="group-label">LLM-AS-A-JUDGE TRACE</div>
+        <div id="judge-trace-list" class="trace-list"></div>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Bottom Floating Scenario Switcher -->
+  <nav id="bottom-bar" class="glass-surface hud-element" aria-label="Evaluation Scenarios">
+    <div class="scenario-tabs">
+      <button class="scenario-btn active" data-scenario="rag_grounded">
+        <span class="dot cyan"></span>
+        <span>1. Grounded RAG</span>
+      </button>
+      <button class="scenario-btn" data-scenario="hallucination">
+        <span class="dot rose"></span>
+        <span>2. Hallucination Drift</span>
+      </button>
+      <button class="scenario-btn" data-scenario="rlhf_steering">
+        <span class="dot emerald"></span>
+        <span>3. RLHF Beam Steering</span>
+      </button>
+      <button class="scenario-btn" data-scenario="adversarial_guard">
+        <span class="dot amber"></span>
+        <span>4. Jailbreak Guardrail</span>
+      </button>
+    </div>
+    <div class="playback-divider"></div>
+    <div class="playback-controls">
+      <button id="btn-play-pause" class="transport-btn" title="Play / Pause Pipeline (Space)">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+      </button>
+      <button id="btn-replay" class="transport-btn" title="Replay Pipeline Animation (R)">
+        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2">
+          <path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/>
+        </svg>
+      </button>
+    </div>
+  </nav>
+
+  <!-- Floating Raycast Inspector Tooltip -->
+  <div id="node-tooltip" class="node-tooltip hidden" role="status"></div>
+
+  <!-- Zen Mode Restore Pill -->
+  <button id="zen-exit-btn" class="zen-exit-btn hidden" title="Restore Interface (H)">
+    Restore HUD <span>(H)</span>
+  </button>
+
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

@@ -1,15 +1,18 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
   <defs>
-    <linearGradient id="metaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+    <linearGradient id="tm-border" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#0057D9"/>
+      <stop offset="50%" stop-color="#0081FB"/>
+      <stop offset="100%" stop-color="#33A8FF"/>
+    </linearGradient>
+    <linearGradient id="tm-blue" x1="7.5" y1="7.5" x2="14.7" y2="14.7" gradientUnits="userSpaceOnUse">
       <stop offset="0%" stop-color="#0064E0"/>
-      <stop offset="52%" stop-color="#0081FB"/>
-      <stop offset="100%" stop-color="#38B6FF"/>
+      <stop offset="100%" stop-color="#229BFF"/>
     </linearGradient>
   </defs>
-  <rect width="64" height="64" rx="16" fill="#181D27"/>
-  <rect x="3" y="3" width="58" height="58" rx="13" fill="none" stroke="url(#metaGrad)" stroke-width="2.5" stroke-opacity="0.7"/>
-  <rect x="14" y="14" width="15" height="15" rx="4" fill="url(#metaGrad)"/>
-  <rect x="35" y="14" width="15" height="15" rx="4" fill="none" stroke="#9EC8FA" stroke-width="3"/>
-  <rect x="14" y="35" width="15" height="15" rx="4" fill="none" stroke="#9EC8FA" stroke-width="3"/>
-  <rect x="35" y="35" width="15" height="15" rx="4" fill="#F2F6FC" fill-opacity="0.88"/>
+  <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="8.5" fill="#0B0E14" stroke="url(#tm-border)" stroke-width="1.8"/>
+  <rect x="7.5" y="7.5" width="7.2" height="7.2" rx="1.8" fill="url(#tm-blue)"/>
+  <rect x="18.1" y="8.3" width="5.6" height="5.6" rx="1.1" stroke="#9EC8FF" stroke-width="1.6"/>
+  <rect x="8.3" y="18.1" width="5.6" height="5.6" rx="1.1" stroke="#9EC8FF" stroke-width="1.6"/>
+  <rect x="17.3" y="17.3" width="7.2" height="7.2" rx="1.8" fill="#E4EAF2"/>
 </svg>

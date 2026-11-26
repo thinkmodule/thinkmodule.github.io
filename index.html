@@ -5,18 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ThinkModule &mdash; Interactive 3D Engineering &amp; AI Systems by Mehmet Rusen Ayvaz</title>
   <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <meta name="description" content="ThinkModule by Mehmet Rusen Ayvaz — Futuristic, browser-native 3D WebGL engineering simulations dissecting AI hardware, autonomous perception, global networks, and neural optimization." />
+  <meta name="description" content="ThinkModule by Mehmet Rusen Ayvaz &mdash; Browser-native 3D WebGL engineering simulations dissecting AI hardware architectures, autonomous perception, and sensor fusion." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     :root {
-      /* Architectural Titanium Grey & Meta Electric Blue */
-      --bg-base: #151922;
-      --bg-mid: #1c222e;
-      --surface: rgba(33, 40, 54, 0.62);
-      --surface-strong: rgba(41, 49, 66, 0.82);
-      --surface-hover: rgba(48, 59, 80, 0.86);
+      /* Obsidian Carbon Black & Electric Blue */
+      --bg-base: #07080A;
+      --bg-mid: #0C0E12;
+      --surface: rgba(17, 19, 24, 0.78);
+      --surface-strong: rgba(22, 25, 32, 0.90);
+      --surface-hover: rgba(25, 29, 38, 0.94);
 
       --meta-deep: #0057D9;
       --meta-blue: #0081FB;
@@ -24,13 +24,13 @@
       --meta-cyan: #5CC8FF;
       --meta-gradient: linear-gradient(135deg, #0064E0 0%, #0081FB 52%, #33A8FF 100%);
 
-      --border: rgba(196, 214, 242, 0.13);
-      --border-strong: rgba(196, 214, 242, 0.24);
+      --border: rgba(255, 255, 255, 0.085);
+      --border-strong: rgba(255, 255, 255, 0.16);
       --border-meta: rgba(0, 129, 251, 0.56);
 
-      --text: #F2F6FC;
-      --text-secondary: #B1BECE;
-      --text-muted: #7C8CA4;
+      --text: #F5F7FA;
+      --text-secondary: #A1A8B3;
+      --text-muted: #6B7280;
       --live: #38E4AE;
 
       --display: "Plus Jakarta Sans", "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
@@ -59,10 +59,10 @@
 
     body {
       background:
-        radial-gradient(64% 44% at 72% 0%, rgba(0, 129, 251, 0.20) 0%, rgba(21, 25, 34, 0) 68%),
-        radial-gradient(50% 40% at 14% 24%, rgba(84, 126, 196, 0.13) 0%, rgba(21, 25, 34, 0) 70%),
-        radial-gradient(60% 45% at 50% 100%, rgba(0, 100, 224, 0.14) 0%, rgba(21, 25, 34, 0) 75%),
-        linear-gradient(180deg, #181D27 0%, #141821 48%, #171C26 100%);
+        radial-gradient(58% 38% at 72% 0%, rgba(0, 129, 251, 0.13) 0%, rgba(7, 8, 10, 0) 68%),
+        radial-gradient(45% 35% at 12% 24%, rgba(51, 161, 255, 0.06) 0%, rgba(7, 8, 10, 0) 70%),
+        radial-gradient(55% 40% at 50% 100%, rgba(0, 100, 224, 0.08) 0%, rgba(7, 8, 10, 0) 75%),
+        linear-gradient(180deg, #07080A 0%, #090B0E 50%, #07080A 100%);
       color: var(--text);
       line-height: 1.6;
       overflow-x: hidden;
@@ -70,7 +70,7 @@
       position: relative;
     }
 
-    /* Ultra-thin futuristic scroll progress bar */
+    /* Ultra-thin scroll progress bar */
     .scroll-progress {
       position: fixed;
       top: 0;
@@ -90,8 +90,8 @@
       pointer-events: none;
       z-index: 0;
       background-image:
-        linear-gradient(to right, rgba(206, 223, 250, 0.034) 1px, transparent 1px),
-        linear-gradient(to bottom, rgba(206, 223, 250, 0.034) 1px, transparent 1px);
+        linear-gradient(to right, rgba(255, 255, 255, 0.026) 1px, transparent 1px),
+        linear-gradient(to bottom, rgba(255, 255, 255, 0.026) 1px, transparent 1px);
       background-size: 56px 56px;
       mask-image: radial-gradient(85% 72% at 50% 12%, #000 12%, transparent 90%);
       -webkit-mask-image: radial-gradient(85% 72% at 50% 12%, #000 12%, transparent 90%);
@@ -119,15 +119,15 @@
       max-width: 1084px;
       margin: 0 auto;
       height: 62px;
-      padding: 0 12px 0 20px;
+      padding: 0 12px 0 18px;
       border-radius: 999px;
-      background: rgba(29, 35, 47, 0.74);
-      backdrop-filter: blur(22px) saturate(155%);
-      -webkit-backdrop-filter: blur(22px) saturate(155%);
+      background: rgba(12, 14, 18, 0.78);
+      backdrop-filter: blur(22px) saturate(150%);
+      -webkit-backdrop-filter: blur(22px) saturate(150%);
       border: 1px solid var(--border);
       box-shadow:
-        0 14px 36px rgba(6, 10, 18, 0.34),
-        inset 0 1px 0 rgba(255, 255, 255, 0.09);
+        0 14px 36px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.06);
       display: flex;
       align-items: center;
       justify-content: space-between;
@@ -147,13 +147,17 @@
     }
 
     .brand-mark {
-      width: 28px;
-      height: 28px;
-      border-radius: 9px;
+      width: 30px;
+      height: 30px;
       display: grid;
       place-items: center;
-      background: var(--meta-gradient);
-      box-shadow: 0 0 18px rgba(0, 129, 251, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.35);
+      flex-shrink: 0;
+    }
+
+    .brand-mark svg {
+      width: 30px;
+      height: 30px;
+      display: block;
     }
 
     .nav-links {
@@ -206,8 +210,8 @@
       color: #D7E8FF;
       padding: 7px 14px;
       border-radius: 999px;
-      border: 1px solid rgba(0, 129, 251, 0.36);
-      background: rgba(0, 129, 251, 0.11);
+      border: 1px solid rgba(0, 129, 251, 0.34);
+      background: rgba(0, 129, 251, 0.09);
       margin-bottom: 28px;
       letter-spacing: 0.03em;
     }
@@ -286,14 +290,14 @@
     }
 
     .btn-glass {
-      background: rgba(255, 255, 255, 0.045);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--text);
       border: 1px solid var(--border-strong);
       backdrop-filter: blur(12px);
     }
 
     .btn-glass:hover {
-      background: rgba(255, 255, 255, 0.095);
+      background: rgba(255, 255, 255, 0.09);
       border-color: rgba(114, 196, 255, 0.45);
       transform: translateY(-2px);
     }
@@ -304,13 +308,13 @@
       display: inline-grid;
       grid-template-columns: repeat(3, minmax(150px, auto));
       border-radius: 18px;
-      background: rgba(33, 40, 54, 0.56);
+      background: rgba(17, 19, 24, 0.72);
       backdrop-filter: blur(16px);
       -webkit-backdrop-filter: blur(16px);
       border: 1px solid var(--border);
       box-shadow:
-        0 14px 34px rgba(6, 10, 18, 0.25),
-        inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        0 14px 34px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
       overflow: hidden;
     }
 
@@ -397,7 +401,7 @@
       line-height: 1.65;
     }
 
-    /* Asymmetric 12-Column Futuristic Bento Grid */
+    /* 12-Column Bento Grid */
     .bento-grid {
       display: grid;
       grid-template-columns: repeat(12, minmax(0, 1fr));
@@ -405,8 +409,6 @@
     }
 
     .span-6 { grid-column: span 6; }
-    .span-7 { grid-column: span 7; }
-    .span-5 { grid-column: span 5; }
 
     .card {
       position: relative;
@@ -423,12 +425,11 @@
       cursor: pointer;
       overflow: hidden;
       box-shadow:
-        0 14px 36px rgba(7, 11, 20, 0.28),
-        inset 0 1px 0 rgba(255, 255, 255, 0.09);
+        0 14px 36px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(255, 255, 255, 0.05);
       transition: transform 0.32s var(--ease), border-color 0.32s var(--ease), background 0.32s var(--ease), box-shadow 0.32s var(--ease);
     }
 
-    /* Top specular accent highlight on hover */
     .card::after {
       content: "";
       position: absolute;
@@ -442,7 +443,6 @@
       pointer-events: none;
     }
 
-    /* Meta-Blue Cursor Spotlight */
     .card::before {
       content: "";
       position: absolute;
@@ -453,8 +453,8 @@
       transition: opacity 0.35s ease;
       background: radial-gradient(
         460px circle at var(--mx, 50%) var(--my, 0%),
-        rgba(0, 129, 251, 0.16),
-        rgba(80, 180, 255, 0.04) 45%,
+        rgba(0, 129, 251, 0.14),
+        rgba(80, 180, 255, 0.03) 45%,
         transparent 68%
       );
     }
@@ -464,9 +464,9 @@
       background: var(--surface-hover);
       transform: translateY(-4px);
       box-shadow:
-        0 22px 50px rgba(4, 10, 24, 0.44),
-        0 0 0 1px rgba(0, 129, 251, 0.20),
-        inset 0 1px 0 rgba(255, 255, 255, 0.15);
+        0 22px 50px rgba(0, 0, 0, 0.65),
+        0 0 0 1px rgba(0, 129, 251, 0.18),
+        inset 0 1px 0 rgba(255, 255, 255, 0.10);
     }
 
     .card:hover::before,
@@ -497,7 +497,7 @@
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      color: #C7DAFA;
+      color: #D2E0F5;
     }
 
     .card-index i {
@@ -518,27 +518,23 @@
       background: rgba(0, 129, 251, 0.12);
     }
 
-    /* Futuristic Blueprint Stage inside Cards */
+    /* Blueprint Stage inside Cards */
     .schematic-stage {
       height: 132px;
       border-radius: 16px;
-      border: 1px solid rgba(196, 214, 242, 0.10);
+      border: 1px solid rgba(255, 255, 255, 0.07);
       background:
-        radial-gradient(70% 70% at 50% 50%, rgba(0, 129, 251, 0.13), rgba(20, 25, 36, 0.72));
+        radial-gradient(70% 70% at 50% 50%, rgba(0, 129, 251, 0.11), rgba(9, 11, 15, 0.92));
       display: grid;
       place-items: center;
       overflow: hidden;
       margin: 2px 0 4px;
     }
 
-    .schematic-stage.compact {
-      height: 98px;
-    }
-
     .schematic-stage svg {
       width: 100%;
       height: 100%;
-      opacity: 0.82;
+      opacity: 0.85;
       transition: opacity 0.35s ease, transform 0.55s var(--ease);
     }
 
@@ -570,7 +566,7 @@
       justify-content: space-between;
       gap: 12px;
       padding-top: 16px;
-      border-top: 1px solid rgba(196, 214, 242, 0.10);
+      border-top: 1px solid var(--border);
       flex-wrap: wrap;
     }
 
@@ -610,7 +606,7 @@
       padding: 6px 12px;
       border-radius: 999px;
       border: 1px solid rgba(0, 129, 251, 0.42);
-      background: rgba(0, 129, 251, 0.15);
+      background: rgba(0, 129, 251, 0.14);
       transition: all 0.2s ease;
     }
 
@@ -626,7 +622,7 @@
       color: var(--text-muted);
     }
 
-    /* Capabilities — Elevated Glass Modules */
+    /* Capabilities */
     .cap-grid {
       display: grid;
       grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -643,7 +639,7 @@
       display: flex;
       flex-direction: column;
       gap: 14px;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
       transition: transform 0.28s var(--ease), border-color 0.28s var(--ease), background 0.28s ease;
     }
 
@@ -665,8 +661,8 @@
       border-radius: 13px;
       display: grid;
       place-items: center;
-      background: rgba(0, 129, 251, 0.14);
-      border: 1px solid rgba(51, 161, 255, 0.32);
+      background: rgba(0, 129, 251, 0.12);
+      border: 1px solid rgba(51, 161, 255, 0.28);
       color: #66BEFF;
     }
 
@@ -690,7 +686,7 @@
       color: var(--text-secondary);
     }
 
-    /* Futuristic Connect Deck (Redesigned Bottom + LinkedIn & GitHub Portals) */
+    /* Connect Deck */
     .connect-deck {
       display: grid;
       grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr);
@@ -703,12 +699,12 @@
       padding: 40px 38px;
       border-radius: 28px;
       background:
-        radial-gradient(80% 90% at 100% 0%, rgba(0, 129, 251, 0.24) 0%, rgba(33, 40, 54, 0) 68%),
-        linear-gradient(155deg, rgba(40, 48, 66, 0.85) 0%, rgba(27, 33, 46, 0.92) 100%);
+        radial-gradient(80% 90% at 100% 0%, rgba(0, 129, 251, 0.18) 0%, rgba(17, 19, 24, 0) 68%),
+        linear-gradient(155deg, rgba(20, 23, 30, 0.92) 0%, rgba(12, 14, 18, 0.96) 100%);
       border: 1px solid var(--border-strong);
       box-shadow:
-        0 24px 56px rgba(6, 10, 18, 0.4),
-        inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        0 24px 56px rgba(0, 0, 0, 0.55),
+        inset 0 1px 0 rgba(255, 255, 255, 0.08);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
@@ -744,7 +740,7 @@
       padding: 0 16px;
       border-radius: 14px;
       border: 1px solid var(--border-strong);
-      background: rgba(255, 255, 255, 0.05);
+      background: rgba(255, 255, 255, 0.04);
       color: var(--text-secondary);
       font-family: var(--mono);
       font-size: 0.77rem;
@@ -786,7 +782,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 18px;
-      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.09);
+      box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
       transition: transform 0.28s var(--ease), border-color 0.28s var(--ease), background 0.28s ease, box-shadow 0.28s ease;
     }
 
@@ -794,7 +790,7 @@
       transform: translateY(-3px);
       border-color: var(--border-meta);
       background: var(--surface-hover);
-      box-shadow: 0 18px 40px rgba(0, 60, 140, 0.24), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.10);
     }
 
     .social-left {
@@ -809,8 +805,8 @@
       border-radius: 15px;
       display: grid;
       place-items: center;
-      background: rgba(0, 129, 251, 0.14);
-      border: 1px solid rgba(51, 161, 255, 0.30);
+      background: rgba(0, 129, 251, 0.12);
+      border: 1px solid rgba(51, 161, 255, 0.28);
       color: #74C5FF;
       flex-shrink: 0;
       transition: background 0.25s ease, color 0.25s ease, box-shadow 0.25s ease;
@@ -857,7 +853,7 @@
       background: rgba(0, 129, 251, 0.24);
     }
 
-    /* Futuristic Minimal Footer */
+    /* Footer */
     footer {
       margin-top: 26px;
       padding: 26px 0 48px;
@@ -913,7 +909,7 @@
       .hero {
         padding-top: 64px;
       }
-      .span-6, .span-7, .span-5 {
+      .span-6 {
         grid-column: span 12;
       }
       .cap-grid,
@@ -929,7 +925,7 @@
     @media (max-width: 640px) {
       .wrap { padding: 0 18px; }
       .nav-shell { top: 12px; padding: 0 12px; }
-      .nav { padding: 0 10px 0 16px; }
+      .nav { padding: 0 10px 0 14px; }
       .nav-links a:not(.nav-cta) { display: none; }
       .telemetry-bar {
         display: grid;
@@ -954,11 +950,23 @@
     <header class="nav">
       <a href="#top" class="brand">
         <span class="brand-mark" aria-hidden="true">
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <rect x="1.5" y="1.5" width="4.4" height="4.4" rx="1.1" fill="#ffffff"/>
-            <rect x="8.1" y="1.5" width="4.4" height="4.4" rx="1.1" stroke="#ffffff" stroke-opacity="0.72" stroke-width="1.2"/>
-            <rect x="1.5" y="8.1" width="4.4" height="4.4" rx="1.1" stroke="#ffffff" stroke-opacity="0.72" stroke-width="1.2"/>
-            <rect x="8.1" y="8.1" width="4.4" height="4.4" rx="1.1" fill="#ffffff" fill-opacity="0.5"/>
+          <svg viewBox="0 0 32 32" fill="none">
+            <defs>
+              <linearGradient id="nav-border" x1="2" y1="2" x2="30" y2="30" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#0057D9"/>
+                <stop offset="50%" stop-color="#0081FB"/>
+                <stop offset="100%" stop-color="#33A8FF"/>
+              </linearGradient>
+              <linearGradient id="nav-blue" x1="7.5" y1="7.5" x2="14.7" y2="14.7" gradientUnits="userSpaceOnUse">
+                <stop offset="0%" stop-color="#0064E0"/>
+                <stop offset="100%" stop-color="#229BFF"/>
+              </linearGradient>
+            </defs>
+            <rect x="1.25" y="1.25" width="29.5" height="29.5" rx="8.5" fill="#0B0E14" stroke="url(#nav-border)" stroke-width="1.8"/>
+            <rect x="7.5" y="7.5" width="7.2" height="7.2" rx="1.8" fill="url(#nav-blue)"/>
+            <rect x="18.1" y="8.3" width="5.6" height="5.6" rx="1.1" stroke="#9EC8FF" stroke-width="1.6"/>
+            <rect x="8.3" y="18.1" width="5.6" height="5.6" rx="1.1" stroke="#9EC8FF" stroke-width="1.6"/>
+            <rect x="17.3" y="17.3" width="7.2" height="7.2" rx="1.8" fill="#E4EAF2"/>
           </svg>
         </span>
         ThinkModule
@@ -973,7 +981,7 @@
   </div>
 
   <main class="wrap">
-    <!-- Clean Futuristic Single-Column Hero -->
+    <!-- Hero -->
     <section class="hero reveal visible">
       <div class="eyebrow">
         <span class="live-dot" aria-hidden="true"></span>
@@ -981,8 +989,8 @@
       </div>
       <h1>Complex systems, engineered in <span class="accent-word">interactive 3D</span>.</h1>
       <p class="hero-sub">
-        Browser-native WebGL simulations dissecting AI accelerators, autonomous perception,
-        global routing protocols, and neural optimization &mdash; built from first principles with zero black boxes.
+        Browser-native WebGL simulations dissecting AI hardware architectures, autonomous perception,
+        and sensor fusion &mdash; built from first principles with zero black boxes.
       </p>
       <div class="hero-actions">
         <a href="#modules" class="btn btn-primary">Explore Modules &darr;</a>
@@ -991,7 +999,7 @@
 
       <div class="telemetry-bar" aria-label="Platform highlights">
         <div class="telemetry-cell">
-          <strong>06</strong>
+          <strong>02</strong>
           <span>3D Studios</span>
         </div>
         <div class="telemetry-cell">
@@ -1005,7 +1013,7 @@
       </div>
     </section>
 
-    <!-- Interactive Modules — Asymmetric Bento Grid -->
+    <!-- Interactive Modules -->
     <section id="modules" class="section section-divider">
       <div class="section-head reveal">
         <div>
@@ -1018,11 +1026,11 @@
       </div>
 
       <div class="bento-grid">
-        <!-- Module 06 (Flagship 6 cols) -->
+        <!-- Module 01 -->
         <article class="card span-6 reveal" data-href="labs/adas-perception-3d/">
           <div class="card-top">
             <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 06 &middot; ADAS &amp; PERCEPTION</span>
+              <span class="card-index"><i></i> MODULE 01 &middot; ADAS &amp; PERCEPTION</span>
               <span class="card-badge">3D PBR + X-Ray</span>
             </div>
             <div class="schematic-stage" aria-hidden="true">
@@ -1031,7 +1039,7 @@
                 <circle cx="150" cy="66" r="46" stroke="#33A1FF" stroke-opacity="0.32" stroke-dasharray="3 4"/>
                 <circle cx="150" cy="66" r="76" stroke="#85BFFF" stroke-opacity="0.16" stroke-dasharray="2 5"/>
                 <path d="M150 66 L320 26 M150 66 L320 66 M150 66 L320 106" stroke="#5CC8FF" stroke-opacity="0.48" stroke-width="1.1"/>
-                <rect x="128" y="55" width="44" height="22" rx="6" fill="#1C2333" stroke="#80C8FF" stroke-width="1.3"/>
+                <rect x="128" y="55" width="44" height="22" rx="6" fill="#0F131B" stroke="#80C8FF" stroke-width="1.3"/>
                 <circle cx="150" cy="66" r="3.5" fill="#38E4AE"/>
                 <rect x="280" y="42" width="42" height="48" rx="6" fill="rgba(0,129,251,0.12)" stroke="#33A1FF" stroke-dasharray="3 3"/>
                 <circle cx="322" cy="66" r="3" fill="#ffffff"/>
@@ -1050,11 +1058,11 @@
           </div>
         </article>
 
-        <!-- Module 05 (Flagship 6 cols) -->
+        <!-- Module 02 -->
         <article class="card span-6 reveal" data-href="labs/gpu-architecture-3d/">
           <div class="card-top">
             <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 05 &middot; AI HARDWARE</span>
+              <span class="card-index"><i></i> MODULE 02 &middot; AI HARDWARE</span>
               <span class="card-badge">3D Exploded PBR</span>
             </div>
             <div class="schematic-stage" aria-hidden="true">
@@ -1077,121 +1085,6 @@
           <div class="card-footer">
             <a href="labs/gpu-architecture-3d/" class="card-link">Launch 3D GPU Studio <span class="arrow">&rarr;</span></a>
             <span class="card-tech">CoWoS-S &middot; HBM3e &middot; FLIR</span>
-          </div>
-        </article>
-
-        <!-- Module 04 (Asymmetric Wide 7 cols) -->
-        <article class="card span-7 reveal" data-href="labs/network-systems-3d/">
-          <div class="card-top">
-            <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 04 &middot; NETWORK SYSTEMS</span>
-              <span class="card-badge">3D Topology</span>
-            </div>
-            <div class="schematic-stage compact" aria-hidden="true">
-              <svg viewBox="0 0 480 98" fill="none">
-                <path d="M52 72 Q165 12 248 54 T428 32" stroke="#0081FB" stroke-width="1.6"/>
-                <path d="M52 72 Q195 88 296 42 T428 70" stroke="#7CC4FF" stroke-opacity="0.45" stroke-dasharray="4 4"/>
-                <circle cx="52" cy="72" r="5" fill="#33A1FF"/>
-                <circle cx="248" cy="54" r="6" fill="#1C2333" stroke="#66C2FF" stroke-width="1.5"/>
-                <circle cx="428" cy="32" r="5" fill="#38E4AE"/>
-                <circle cx="428" cy="70" r="4" fill="#90B4E0" fill-opacity="0.6"/>
-                <circle cx="152" cy="40" r="3" fill="#ffffff"/>
-              </svg>
-            </div>
-            <h3>3D Global Network &amp; TCP Congestion</h3>
-            <p>
-              360&deg; fiber backbone simulator with live Dijkstra OSPF subsea cable failover, full L2&ndash;L7 packet header inspection, and CUBIC vs. Reno vs. BBR congestion control.
-            </p>
-          </div>
-          <div class="card-footer">
-            <a href="labs/network-systems-3d/" class="card-link">Launch Network Studio <span class="arrow">&rarr;</span></a>
-            <span class="card-tech">OSPF &middot; TCP BBR</span>
-          </div>
-        </article>
-
-        <!-- Module 03 (Asymmetric 5 cols) -->
-        <article class="card span-5 reveal" data-href="labs/loss-landscape-3d/">
-          <div class="card-top">
-            <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 03 &middot; OPTIMIZATION</span>
-              <span class="card-badge">3D Manifold</span>
-            </div>
-            <div class="schematic-stage compact" aria-hidden="true">
-              <svg viewBox="0 0 340 98" fill="none">
-                <path d="M24 72 C74 20, 128 84, 176 48 C222 14, 266 76, 316 28" stroke="#33A1FF" stroke-width="1.6"/>
-                <path d="M24 82 C78 36, 130 92, 176 58 C224 28, 268 84, 316 42" stroke="#85BFFF" stroke-opacity="0.34" stroke-dasharray="3 4"/>
-                <circle cx="176" cy="48" r="4.5" fill="#1C2333" stroke="#ffffff" stroke-width="1.5"/>
-                <circle cx="248" cy="54" r="3.5" fill="#38E4AE"/>
-              </svg>
-            </div>
-            <h3>3D Neural Loss Landscape &amp; Hessian</h3>
-            <p>
-              Interactive 3D curvature manifolds with analytical 2&times;2 Hessian eigenvectors, saddle-point dynamics, and live optimizer races comparing SGD, Momentum, and AdamW.
-            </p>
-          </div>
-          <div class="card-footer">
-            <a href="labs/loss-landscape-3d/" class="card-link">Launch Optimization Lab <span class="arrow">&rarr;</span></a>
-            <span class="card-tech">Hessian &middot; AdamW</span>
-          </div>
-        </article>
-
-        <!-- Module 02 (Asymmetric 5 cols) -->
-        <article class="card span-5 reveal" data-href="labs/gpu-inference-roofline/">
-          <div class="card-top">
-            <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 02 &middot; LLM INFERENCE</span>
-              <span class="card-badge">Roofline Model</span>
-            </div>
-            <div class="schematic-stage compact" aria-hidden="true">
-              <svg viewBox="0 0 340 98" fill="none">
-                <line x1="34" y1="80" x2="306" y2="80" stroke="rgba(196,214,242,0.22)" stroke-width="1"/>
-                <line x1="34" y1="18" x2="34" y2="80" stroke="rgba(196,214,242,0.22)" stroke-width="1"/>
-                <path d="M40 76 L146 28 L300 28" stroke="#33A1FF" stroke-width="1.8"/>
-                <line x1="146" y1="28" x2="146" y2="80" stroke="#5CC8FF" stroke-opacity="0.45" stroke-dasharray="3 3"/>
-                <circle cx="146" cy="28" r="4" fill="#ffffff"/>
-                <circle cx="96" cy="51" r="3" fill="#38E4AE"/>
-                <circle cx="232" cy="28" r="3" fill="#5CC8FF"/>
-              </svg>
-            </div>
-            <h3>GPU Inference &amp; Roofline Studio</h3>
-            <p>
-              Real-time KV-cache memory sizing, vLLM PagedAttention block utilization, arithmetic intensity analysis, and the memory wall between prefill and decode phases.
-            </p>
-          </div>
-          <div class="card-footer">
-            <a href="labs/gpu-inference-roofline/" class="card-link">Launch Roofline Studio <span class="arrow">&rarr;</span></a>
-            <span class="card-tech">KV-Cache &middot; TFLOPs</span>
-          </div>
-        </article>
-
-        <!-- Module 01 (Asymmetric Wide 7 cols) -->
-        <article class="card span-7 reveal" data-href="labs/transformer-workbench/">
-          <div class="card-top">
-            <div class="card-meta">
-              <span class="card-index"><i></i> MODULE 01 &middot; LLM INTERNALS</span>
-              <span class="card-badge">Mechanistic</span>
-            </div>
-            <div class="schematic-stage compact" aria-hidden="true">
-              <svg viewBox="0 0 480 98" fill="none">
-                <rect x="46" y="34" width="54" height="30" rx="8" fill="rgba(0,129,251,0.16)" stroke="#33A1FF"/>
-                <rect x="132" y="20" width="54" height="24" rx="7" fill="rgba(255,255,255,0.04)" stroke="#88B7EB" stroke-opacity="0.5"/>
-                <rect x="132" y="54" width="54" height="24" rx="7" fill="rgba(255,255,255,0.04)" stroke="#88B7EB" stroke-opacity="0.5"/>
-                <rect x="228" y="24" width="96" height="50" rx="10" fill="rgba(0,129,251,0.12)" stroke="#5CC8FF"/>
-                <rect x="366" y="34" width="68" height="30" rx="8" fill="rgba(56,228,174,0.12)" stroke="#38E4AE"/>
-                <path d="M100 49 L132 32 M100 49 L132 66 M186 32 L228 42 M186 66 L228 56 M324 49 L366 49" stroke="#68C2FF" stroke-opacity="0.65" stroke-width="1.2"/>
-                <circle cx="252" cy="49" r="3" fill="#ffffff"/>
-                <circle cx="276" cy="49" r="3" fill="#33A1FF"/>
-                <circle cx="300" cy="49" r="3" fill="#5CC8FF"/>
-              </svg>
-            </div>
-            <h3>Transformer Workbench</h3>
-            <p>
-              Step-by-step mechanistic dissection of tokenization, self-attention weight matrices, logit distributions, and temperature / top-p sampling dynamics.
-            </p>
-          </div>
-          <div class="card-footer">
-            <a href="labs/transformer-workbench/" class="card-link">Launch Workbench <span class="arrow">&rarr;</span></a>
-            <span class="card-tech">Attention &middot; Sampling</span>
           </div>
         </article>
       </div>
@@ -1257,7 +1150,7 @@
       </div>
     </section>
 
-    <!-- Futuristic Connect Deck -->
+    <!-- Connect Deck -->
     <section id="contact" class="section" style="padding-top: 24px;">
       <div class="connect-deck reveal">
         <div class="connect-main">
@@ -1338,7 +1231,6 @@
   </main>
 
   <script>
-    // 1. Subtle scroll progress bar
     const progressEl = document.getElementById("scrollProgress");
     if (progressEl) {
       const updateProgress = () => {
@@ -1351,7 +1243,6 @@
       updateProgress();
     }
 
-    // 2. Cursor spotlight & full-card navigation
     document.querySelectorAll(".card").forEach(card => {
       card.addEventListener("mousemove", e => {
         const rect = card.getBoundingClientRect();
@@ -1366,7 +1257,6 @@
       });
     });
 
-    // 3. Click-to-copy email micro-interaction
     const copyBtn = document.getElementById("copyEmailBtn");
     const copyLabel = document.getElementById("copyLabel");
     if (copyBtn) {
@@ -1385,7 +1275,6 @@
       });
     }
 
-    // 4. Smooth scroll reveal
     const observer = new IntersectionObserver(
       entries => {
         entries.forEach(entry => {
